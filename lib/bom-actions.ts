@@ -1,3 +1,5 @@
+import { getCurrentProjectId } from "./project-context";
+
 export async function createBomRecords(items: Record<string, unknown>[]) {
   const response = await fetch("/api/master-data", {
     method: "POST",
@@ -5,7 +7,7 @@ export async function createBomRecords(items: Record<string, unknown>[]) {
     body: JSON.stringify({
       entity: "bomItems",
       items: items.map((item) => ({
-        projectId: "proj-fab2a",
+        projectId: getCurrentProjectId(),
         quantity: 1,
         unit: "件",
         unitPriceCny: 0,

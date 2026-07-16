@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { downloadCsv, parseCsv } from "@/lib/client-actions";
+import { getCurrentProjectId } from "@/lib/project-context";
 
 type Notify = (message: string) => void;
 type Row = Record<string, unknown> & { id?: string };
-type Attachment = { id: string; fileName: string; category: string; version: number; sizeBytes: number; uploadedBy: string; createdAt: string };
+type Attachment = { id: string; fileName: string; category: string; version: number; sizeBytes: number; uploadedBy: string; createdAt: string; status?: string; signedBy?: string | null; signedAt?: string | null };
 type FieldType = "text" | "number" | "textarea" | "select" | "relation" | "boolean" | "date" | "json";
 type Field = {
   key: string;
@@ -185,7 +186,7 @@ const definitions: Record<string, EntityDefinition> = {
   },
   workflowActions: {
     label: "工作流动作", plural: "行动与会议台账", icon: "✓", description: "会议、催办、评审、签发和跨专业动作的持久化记录", title: ["actionType", "title"], subtitle: ["assignedTo", "status"],
-    defaults: { projectId: "proj-fab2a", actionType: "task", status: "open", requestedBy: "ui" },
+    defaults: { actionType: "task", status: "open", requestedBy: "ui" },
     fields: [projectField, { key: "actionType", label: "动作类型", required: true }, { key: "title", label: "动作标题", required: true, wide: true },
       { key: "entityType", label: "关联对象类型" }, { key: "entityId", label: "关联对象 ID" }, { key: "assignedTo", label: "责任人" }, { key: "dueAt", label: "到期时间", type: "date" },
       { key: "payloadJson", label: "补充信息 JSON", type: "json", wide: true }, { key: "requestedBy", label: "发起人", required: true }, { key: "completedAt", label: "完成时间", type: "date" },
@@ -254,7 +255,7 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
   const load = async () => {
     setLoading(true); setError("");
     try {
-      const response = await fetch(`/api/master-data?entities=${entityKeys.join(",")}`, { cache: "no-store" });
+      const response = await fetch(`/api/master-data?entities=${entityKeys.join(",")}&projectId=${encodeURIComponent(getCurrentProjectId())}`, { cache: "no-store" });
       if (!response.ok) throw new Error(await readError(response));
       const payload = await response.json() as { data: Record<string, Row[]>; permissions?: { canWrite?: boolean }; principal?: { displayName?: string; email?: string } };
       setRecords(payload.data ?? {});
@@ -276,6 +277,7 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
 
   const makeNew = () => {
     const next: Row = { ...(definition.defaults ?? {}) };
+    if (definition.fields.some((field) => field.key === "projectId")) next.projectId = getCurrentProjectId();
     for (const field of definition.fields) {
       if (field.type === "relation" && field.required && field.relation && !(field.key in next)) next[field.key] = records[field.relation]?.[0]?.id ?? "";
     }
@@ -285,7 +287,7 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { setQuery(""); makeNew(); }, [activeEntity]);
 
-  const projectIdForRow = (row: Row, id?: string | null) => String(row.projectId || (activeEntity === "projects" ? id : "") || records.projects?.[0]?.id || "proj-fab2a");
+  const projectIdForRow = (row: Row, id?: string | null) => String(row.projectId || (activeEntity === "projects" ? id : "") || getCurrentProjectId());
 
   const loadAttachments = async (id: string, row: Row) => {
     try {
@@ -339,13 +341,13 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
 
   const remove = async () => {
     if (!selectedId || !canWrite) return;
-    if (!window.confirm(`确认删除这条${definition.label}记录？关联中的记录会被系统阻止删除。`)) return;
+    if (!window.confirm(`确认归档这条${definition.label}记录？归档后可从版本历史恢复。`)) return;
     setSaving(true); setError("");
     try {
       const response = await fetch("/api/master-data", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: activeEntity, id: selectedId }) });
       if (!response.ok) throw new Error(await readError(response));
       setRecords((current) => ({ ...current, [activeEntity]: (current[activeEntity] ?? []).filter((row) => row.id !== selectedId) }));
-      makeNew(); notify(`${definition.label}已删除，审计日志已记录`);
+      makeNew(); notify(`${definition.label}已归档，版本快照与审计日志已记录`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "删除失败"); }
     finally { setSaving(false); }
   };
@@ -399,6 +401,26 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "附件上传失败"); }
     finally { setUploading(false); if (attachmentInput.current) attachmentInput.current.value = ""; }
   };
+  const downloadAttachment = (file: Attachment) => {
+    const projectId = projectIdForRow(draft, selectedId);
+    const anchor = document.createElement("a");
+    anchor.href = "/api/files?projectId=" + encodeURIComponent(projectId) + "&download=" + encodeURIComponent(file.id);
+    anchor.click();
+  };
+
+  const signAttachment = async (file: Attachment) => {
+    if (!canWrite) return;
+    setUploading(true); setError("");
+    try {
+      const response = await fetch("/api/files", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: file.id, action: "sign" }) });
+      if (!response.ok) throw new Error(await readError(response));
+      const payload = await response.json() as { file: Attachment };
+      setAttachments((current) => current.map((item) => item.id === file.id ? payload.file : item));
+      notify(file.fileName + " 已签署并写入审计日志");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "附件签署失败"); }
+    finally { setUploading(false); }
+  };
+
 
   return <>
     <div className="masterTop">
@@ -437,8 +459,8 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
           if (field.type === "textarea") return <label className={className} key={field.key}><span>{field.label}{field.required && <b>*</b>}</span><textarea value={String(value)} disabled={!canWrite} placeholder={field.placeholder} onChange={(event) => updateField(field, event.target.value)} />{field.help && <small>{field.help}</small>}</label>;
           return <label className={className} key={field.key}><span>{field.label}{field.required && <b>*</b>}</span><input type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} step={field.type === "number" ? "any" : undefined} value={String(value)} disabled={!canWrite} placeholder={field.placeholder} onChange={(event) => updateField(field, event.target.value)} />{field.help && <small>{field.help}</small>}</label>;
         })}</div>
-        {selectedId && <div className="masterAttachments"><div><span>R2 关联附件</span><b>{attachments.length} 份文件</b></div><div className="masterAttachmentList">{attachments.slice(0, 3).map((file) => <span key={file.id}><i>▧</i><b>{file.fileName}</b><small>v{file.version} · {(file.sizeBytes / 1024).toFixed(1)} KB</small></span>)}{!attachments.length && <small>暂无附件，可上传技术文件、品牌表、图纸、计算书或签字记录</small>}</div><button disabled={!canWrite || uploading} onClick={() => attachmentInput.current?.click()}>{uploading ? "上传中…" : "＋ 上传附件"}</button><input ref={attachmentInput} type="file" hidden onChange={(event) => event.target.files?.[0] && void uploadAttachment(event.target.files[0])}/></div>}
-        <div className="masterActions"><button className="danger" disabled={!selectedId || !canWrite || saving} onClick={remove}>删除记录</button><span>{dirty ? "● 尚未保存" : "✓ 无待保存修改"}</span><button className="soft" disabled={saving || !dirty} onClick={() => setDraft(baseline)}>撤销</button><button className="primaryButton" disabled={!canWrite || saving || !dirty} onClick={save}>{saving ? "保存中…" : selectedId ? "保存修改" : "创建记录"}</button></div>
+        {selectedId && <div className="masterAttachments"><div><span>R2 关联附件</span><b>{attachments.length} 份文件</b></div><div className="masterAttachmentList">{attachments.slice(0, 6).map((file) => <div key={file.id}><span><i>▧</i><b>{file.fileName}</b><small>v{file.version} · {(file.sizeBytes / 1024).toFixed(1)} KB · {file.status === "signed" ? "已签署" : "有效"}</small></span><button onClick={() => downloadAttachment(file)}>下载</button><button disabled={!canWrite || uploading || file.status === "signed"} onClick={() => void signAttachment(file)}>{file.status === "signed" ? "已签署" : "签署"}</button></div>)}{!attachments.length && <small>暂无附件，可上传技术文件、品牌表、图纸、计算书或签字记录</small>}</div><button disabled={!canWrite || uploading} onClick={() => attachmentInput.current?.click()}>{uploading ? "上传中…" : "＋ 上传附件"}</button><input ref={attachmentInput} type="file" hidden onChange={(event) => event.target.files?.[0] && void uploadAttachment(event.target.files[0])}/></div>}
+        <div className="masterActions"><button className="danger" disabled={!selectedId || !canWrite || saving} onClick={remove}>归档记录</button><span>{dirty ? "● 尚未保存" : "✓ 无待保存修改"}</span><button className="soft" disabled={saving || !dirty} onClick={() => setDraft(baseline)}>撤销</button><button className="primaryButton" disabled={!canWrite || saving || !dirty} onClick={save}>{saving ? "保存中…" : selectedId ? "保存修改" : "创建记录"}</button></div>
       </section>
     </div>
   </>;

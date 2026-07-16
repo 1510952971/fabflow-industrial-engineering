@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { equipmentComponents, equipmentModels, equipmentPorts, materialApprovalRules, materialCompatibility, materials, selectionResults, selectionRuns, technicalMaterialRules } from "@/db/schema";
 import { ApiError, errorResponse } from "@/lib/api";
-import { authorize } from "@/lib/auth";
+import { assertAuthenticated, assertProjectAccess, authorize, PUBLIC_DEMO_PROJECT_ID } from "@/lib/auth";
 import { writeAudit } from "@/lib/audit";
 import { validateSelection, type SelectionInput } from "@/lib/selection-engine";
 import { findTechnicalRule } from "@/lib/material-rules";
@@ -12,7 +12,10 @@ type Payload = SelectionInput & { projectId?: string; equipmentModelId?: string;
 export async function POST(request: Request) {
   try {
     const principal = await authorize(request, "equipment:validate");
+    assertAuthenticated(principal);
     const payload = await request.json() as Payload;
+    const projectId = payload.projectId ?? PUBLIC_DEMO_PROJECT_ID;
+    assertProjectAccess(principal, projectId, true);
     const required = ["equipmentModelId", "componentId", "selectedMaterialCode", "connectionStandard", "nominalSize", "medium"] as const;
     for (const key of required) if (!payload[key]) throw new ApiError(400, `${key} is required`, "INVALID_INPUT");
     if (!Number.isFinite(payload.operatingPressureMpa) || !Number.isFinite(payload.operatingTemperatureC)) throw new ApiError(400, "压力和温度必须是有效数值", "INVALID_INPUT");
@@ -34,7 +37,7 @@ export async function POST(request: Request) {
     const runId = crypto.randomUUID();
     await db.insert(selectionRuns).values({
       id: runId,
-      projectId: payload.projectId ?? "proj-fab2a",
+      projectId,
       equipmentModelId: model.id,
       componentId: component.id,
       status: validation.status,
@@ -44,7 +47,7 @@ export async function POST(request: Request) {
     });
     await db.insert(selectionResults).values(validation.results.map((result) => ({ id: crypto.randomUUID(), runId, ...result })));
     await writeAudit(request, principal, {
-      projectId: payload.projectId ?? "proj-fab2a", action: "equipment.selection.validate", entityType: "selection_run", entityId: runId,
+      projectId, action: "equipment.selection.validate", entityType: "selection_run", entityId: runId,
       after: { equipment: model.code, component: component.componentCode, material: material.code, status: validation.status, score: validation.score },
     });
     return Response.json({ runId, equipment: model, component, material, port: port ?? null, technicalRule, brandRule: brandRule ?? null, ...validation }, { status: 201 });

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { downloadCsv, downloadText, openMasterData, parseCsv } from "@/lib/client-actions";
 import { facilityDomains, facilitySystems } from "@/lib/facility-systems";
+import { getCurrentProjectId } from "@/lib/project-context";
 
 type Notify = (message: string) => void;
 type MediaConditionRow = {
@@ -120,7 +121,7 @@ export function MediaConditionsPage({ notify }: { notify: Notify }) {
         body: JSON.stringify({
           entity: "tags",
           data: {
-            projectId: "proj-fab2a",
+            projectId: getCurrentProjectId(),
             systemId: activeSystem.dbSystemId,
             tagNo: tagNo.trim(),
             entityType: "line",

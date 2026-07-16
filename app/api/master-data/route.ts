@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, or } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   bomItems,
@@ -21,9 +21,10 @@ import {
   testPacks,
   workflowActions,
 } from "@/db/schema";
+import { recordVersions } from "@/db/workflow-schema";
 import { ApiError, errorResponse } from "@/lib/api";
 import { writeAudit } from "@/lib/audit";
-import { authorize } from "@/lib/auth";
+import { assertAuthenticated, assertProjectAccess, authorize, PUBLIC_DEMO_PROJECT_ID, type Principal } from "@/lib/auth";
 
 type FieldKind = "text" | "number" | "integer" | "boolean" | "json";
 type EntityConfig = {
@@ -135,6 +136,60 @@ const entityConfigs: Record<string, EntityConfig> = {
   },
 };
 
+// Project-scoped rows are always filtered and authorized on the server.
+// Catalog/rule entities are global reference data and require a global role to edit.
+const projectColumns: Record<string, typeof projects.id> = {
+  projects: projects.id,
+  systems: systems.projectId,
+  tags: tags.projectId,
+  interfaces: interfaces.projectId,
+  bomItems: bomItems.projectId,
+  purchaseOrders: purchaseOrders.projectId,
+  testPacks: testPacks.projectId,
+  punchItems: punchItems.projectId,
+  managementOfChanges: managementOfChanges.projectId,
+  constructionWorkPackages: constructionWorkPackages.projectId,
+  workflowActions: workflowActions.projectId,
+};
+
+const searchFields: Record<string, string[]> = {
+  projects: ["code", "name", "fab", "region"],
+  systems: ["code", "name", "discipline", "ownerEmail"],
+  tags: ["tagNo", "description", "medium"],
+  interfaces: ["interfaceCode", "medium", "connectionStandard", "nominalSize", "ownerDiscipline"],
+  materials: ["manufacturer", "code", "name", "grade", "baseMaterial"],
+  equipmentFactories: ["code", "name", "country", "contactEmail"],
+  equipmentModels: ["code", "name", "category", "designStandard"],
+  equipmentComponents: ["componentCode", "componentName", "function", "medium"],
+  equipmentPorts: ["portCode", "service", "connectionStandard", "nominalSize"],
+  technicalRules: ["ruleCode", "packageCode", "systemCode", "serviceName", "sourceDocument"],
+  brandRules: ["ruleCode", "packageCode", "itemName", "requiredGrade", "sourceDocument"],
+  bomItems: ["itemCode", "itemName", "specification", "sourceType"],
+  purchaseOrders: ["poNumber", "supplier", "packageCode", "status"],
+  testPacks: ["packNumber", "title", "testType", "status"],
+  punchItems: ["punchNumber", "category", "description", "ownerEmail", "status"],
+  managementOfChanges: ["mocNumber", "title", "reason", "riskLevel", "status"],
+  constructionWorkPackages: ["packageNumber", "title", "area", "ownerEmail", "status"],
+  workflowActions: ["actionType", "title", "entityType", "entityId", "status", "assignedTo"],
+};
+
+function hasGlobalScope(principal: Principal) {
+  return principal.roles.includes("platform_admin") || principal.scopes.some((scope) => scope.type === "global" && scope.id === "*");
+}
+
+function requireEntityWriteScope(principal: Principal, entity: string, row: Record<string, unknown>) {
+  assertAuthenticated(principal);
+  const projectId = projectIdFor(entity, row);
+  if (projectColumns[entity]) assertProjectAccess(principal, projectId, true);
+  else if (!hasGlobalScope(principal)) throw new ApiError(403, "全局材料、设备和规则目录仅允许全局管理员维护", "GLOBAL_SCOPE_REQUIRED");
+}
+
+async function writeVersion(entity: string, row: Record<string, unknown>, operation: string, actorEmail: string) {
+  const db = getDb();
+  const [{ total }] = await db.select({ total: count() }).from(recordVersions).where(and(eq(recordVersions.entityType, entity), eq(recordVersions.entityId, String(row.id))));
+  await db.insert(recordVersions).values({ id: crypto.randomUUID(), projectId: projectIdFor(entity, row), entityType: entity, entityId: String(row.id), version: Number(total) + 1, operation, snapshotJson: JSON.stringify(row), actorEmail });
+}
+
 function getConfig(entity: string | null) {
   if (!entity || !entityConfigs[entity]) throw new ApiError(400, "不支持的数据类型", "INVALID_ENTITY");
   return entityConfigs[entity];
@@ -194,21 +249,72 @@ export async function GET(request: Request) {
       .split(",").map((value) => value.trim()).filter(Boolean);
     const uniqueEntities = [...new Set(requested)];
     if (uniqueEntities.length > 20) throw new ApiError(400, "一次最多读取 20 类数据", "TOO_MANY_ENTITIES");
+    const projectId = url.searchParams.get("projectId") ?? PUBLIC_DEMO_PROJECT_ID;
+    const page = Math.max(1, Number(url.searchParams.get("page") ?? 1) || 1);
+    const pageSize = Math.min(500, Math.max(1, Number(url.searchParams.get("pageSize") ?? 500) || 500));
+    const search = url.searchParams.get("q")?.trim() ?? "";
+    const sort = url.searchParams.get("sort")?.trim() ?? "";
+    const direction = url.searchParams.get("direction") === "asc" ? "asc" : "desc";
+    const allowedProjectIds = principal.scopes.filter((scope) => scope.type === "project").map((scope) => scope.id);
     const data: Record<string, unknown[]> = {};
+    const meta: Record<string, { page: number; pageSize: number; total: number }> = {};
     const db = getDb();
     for (const entity of uniqueEntities) {
       const config = getConfig(entity);
-      data[entity] = await db.select().from(config.table).limit(500);
+      const conditions = [];
+      if (entity === "projects") {
+        if (!hasGlobalScope(principal) || url.searchParams.get("allProjects") !== "1") {
+          const ids = hasGlobalScope(principal) ? [projectId] : allowedProjectIds;
+          conditions.push(ids.length ? inArray(projects.id, ids) : eq(projects.id, "__not_available__"));
+        }
+      } else if (projectColumns[entity]) {
+        assertProjectAccess(principal, projectId);
+        conditions.push(eq(projectColumns[entity], projectId));
+      }
+      if (search && searchFields[entity]?.length) {
+        const terms = searchFields[entity].map((field) => like(config.table[field], `%${search}%`));
+        conditions.push(or(...terms));
+      }
+      const whereCondition = conditions.length ? and(...conditions) : undefined;
+      const orderColumn = sort && (sort in config.fields || sort === "id") ? config.table[sort] : config.idColumn;
+      const orderBy = direction === "asc" ? asc(orderColumn) : desc(orderColumn);
+      const totalRows = whereCondition
+        ? await db.select({ value: count() }).from(config.table).where(whereCondition)
+        : await db.select({ value: count() }).from(config.table);
+      data[entity] = whereCondition
+        ? await db.select().from(config.table).where(whereCondition).orderBy(orderBy).limit(pageSize).offset((page - 1) * pageSize)
+        : await db.select().from(config.table).orderBy(orderBy).limit(pageSize).offset((page - 1) * pageSize);
+      meta[entity] = { page, pageSize, total: Number(totalRows[0]?.value ?? 0) };
     }
-    return Response.json({ data, principal, permissions: { canWrite: canWrite(principal.roles) } });
+    return Response.json({ data, meta, principal, permissions: { canWrite: principal.authenticated && canWrite(principal.roles) } });
   } catch (error) { return errorResponse(error); }
 }
 
 export async function POST(request: Request) {
   try {
     const principal = await authorize(request, "data:write");
-    const body = await request.json() as { entity?: string; data?: unknown; items?: unknown[] };
+    assertAuthenticated(principal);
+    const body = await request.json() as { entity?: string; data?: unknown; items?: unknown[]; action?: string; versionId?: string };
     const entity = body.entity ?? "";
+    if (body.action === "restore") {
+      if (!body.versionId) throw new ApiError(400, "版本 ID 缺失", "INVALID_INPUT");
+      const db = getDb();
+      const [version] = await db.select().from(recordVersions).where(eq(recordVersions.id, body.versionId)).limit(1);
+      if (!version) throw new ApiError(404, "历史版本不存在", "NOT_FOUND");
+      const restoreEntity = version.entityType;
+      const restoreConfig = getConfig(restoreEntity);
+      const snapshot = JSON.parse(version.snapshotJson) as Record<string, unknown>;
+      requireEntityWriteScope(principal, restoreEntity, snapshot);
+      const values: Record<string, unknown> = {};
+      for (const field of Object.keys(restoreConfig.fields)) if (field in snapshot) values[field] = snapshot[field];
+      const [existing] = await db.select().from(restoreConfig.table).where(eq(restoreConfig.idColumn, snapshot.id)).limit(1);
+      if (existing) await db.update(restoreConfig.table).set({ ...values, updatedAt: new Date().toISOString() }).where(eq(restoreConfig.idColumn, snapshot.id));
+      else await db.insert(restoreConfig.table).values({ id: snapshot.id, ...values });
+      const [restored] = await db.select().from(restoreConfig.table).where(eq(restoreConfig.idColumn, snapshot.id)).limit(1);
+      await writeVersion(restoreEntity, restored as Record<string, unknown>, "restore", principal.email);
+      await writeAudit(request, principal, { projectId: projectIdFor(restoreEntity, snapshot), action: restoreEntity + ".restore", entityType: restoreEntity, entityId: String(snapshot.id), before: existing, after: restored });
+      return Response.json({ item: restored, restoredFromVersion: body.versionId });
+    }
     const config = getConfig(entity);
     if (body.items) {
       if (!Array.isArray(body.items) || body.items.length === 0 || body.items.length > 200) throw new ApiError(400, "批量导入必须包含 1–200 条记录", "INVALID_BATCH");
@@ -217,6 +323,7 @@ export async function POST(request: Request) {
       const created: Record<string, unknown>[] = [];
       for (const values of normalized) {
         const row = { id: crypto.randomUUID(), ...values } as Record<string, unknown>;
+        requireEntityWriteScope(principal, entity, row);
         await db.insert(config.table).values(row);
         created.push(row);
         await writeAudit(request, principal, { projectId: projectIdFor(entity, row), action: `${entity}.import`, entityType: entity, entityId: String(row.id), after: row });
@@ -225,9 +332,11 @@ export async function POST(request: Request) {
     }
     const values = normalizeData(config, body.data);
     const row = { id: crypto.randomUUID(), ...values } as Record<string, unknown>;
+    requireEntityWriteScope(principal, entity, row);
     const db = getDb();
     await db.insert(config.table).values(row);
     const [created] = await db.select().from(config.table).where(eq(config.idColumn, row.id)).limit(1);
+    await writeVersion(entity, (created ?? row) as Record<string, unknown>, "create", principal.email);
     await writeAudit(request, principal, { projectId: projectIdFor(entity, row), action: `${entity}.create`, entityType: entity, entityId: String(row.id), after: created ?? row });
     return Response.json({ item: created ?? row }, { status: 201 });
   } catch (error) { return errorResponse(error); }
@@ -236,16 +345,20 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const principal = await authorize(request, "data:write");
+    assertAuthenticated(principal);
     const body = await request.json() as { entity?: string; id?: string; data?: unknown };
     const entity = body.entity ?? "";
     const config = getConfig(entity);
     if (!body.id) throw new ApiError(400, "记录 ID 缺失", "INVALID_INPUT");
     const db = getDb();
     const [before] = await db.select().from(config.table).where(eq(config.idColumn, body.id)).limit(1) as Record<string, unknown>[];
-    if (!before) throw new ApiError(404, `${config.label}记录不存在`, "NOT_FOUND");
+    if (!before) throw new ApiError(404, config.label + "记录不存在", "NOT_FOUND");
+    requireEntityWriteScope(principal, entity, before);
+    await writeVersion(entity, before, "before_update", principal.email);
     const values = normalizeData(config, body.data, true);
     await db.update(config.table).set({ ...values, updatedAt: new Date().toISOString() }).where(eq(config.idColumn, body.id));
     const [after] = await db.select().from(config.table).where(eq(config.idColumn, body.id)).limit(1);
+    await writeVersion(entity, after as Record<string, unknown>, "update", principal.email);
     await writeAudit(request, principal, { projectId: projectIdFor(entity, before), action: `${entity}.update`, entityType: entity, entityId: body.id, before, after });
     return Response.json({ item: after });
   } catch (error) { return errorResponse(error); }
@@ -254,13 +367,24 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const principal = await authorize(request, "data:write");
-    const body = await request.json() as { entity?: string; id?: string };
+    assertAuthenticated(principal);
+    const body = await request.json() as { entity?: string; id?: string; hard?: boolean };
     const entity = body.entity ?? "";
     const config = getConfig(entity);
     if (!body.id) throw new ApiError(400, "记录 ID 缺失", "INVALID_INPUT");
     const db = getDb();
     const [before] = await db.select().from(config.table).where(eq(config.idColumn, body.id)).limit(1) as Record<string, unknown>[];
-    if (!before) throw new ApiError(404, `${config.label}记录不存在`, "NOT_FOUND");
+    if (!before) throw new ApiError(404, config.label + "记录不存在", "NOT_FOUND");
+    requireEntityWriteScope(principal, entity, before);
+    await writeVersion(entity, before, body.hard ? "before_hard_delete" : "before_archive", principal.email);
+    if (!body.hard && "status" in config.fields) {
+      await db.update(config.table).set({ status: "archived", updatedAt: new Date().toISOString() }).where(eq(config.idColumn, body.id));
+      const [after] = await db.select().from(config.table).where(eq(config.idColumn, body.id)).limit(1);
+      await writeVersion(entity, after as Record<string, unknown>, "archive", principal.email);
+      await writeAudit(request, principal, { projectId: projectIdFor(entity, before), action: entity + ".archive", entityType: entity, entityId: body.id, before, after });
+      return Response.json({ id: body.id, archived: true, item: after });
+    }
+    if (body.hard && !principal.roles.includes("platform_admin")) throw new ApiError(403, "彻底删除仅允许平台管理员执行", "FORBIDDEN");
     try { await db.delete(config.table).where(eq(config.idColumn, body.id)); }
     catch (error) {
       const message = error instanceof Error ? error.message : "";

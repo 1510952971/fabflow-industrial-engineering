@@ -1,98 +1,59 @@
-# vinext-starter
+# FabFlow 厂务工程与设备材料选型系统
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+面向全球 FAB 建设、厂务系统设计、设备厂协同、材料校验、采购质量、施工测试与移交的全栈工程管理原型。
 
-## Prerequisites
+## 本地运行
 
-- Node.js `>=22.13.0`
+环境要求：Node.js 22.13 或更高版本。
 
-## Quick Start
-
-```bash
+```powershell
 npm install
+npm run db:migrate:local
 npm run dev
+```
+
+终端显示本地地址后在浏览器打开。默认使用 `http://localhost:3000`；如果 3000 端口已占用，开发服务器会自动使用 3001 等后续端口。
+
+首次运行必须执行本地迁移，用于建立 D1 项目、系统、Tag、接口、设备材料、BOM、审批、附件元数据、工作流、审计和连接器表。后续迁移命令可重复执行，只会应用尚未执行的版本。
+
+## 验证与构建
+
+```powershell
+npm test
+npm run lint
 npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+## 访问与权限
 
-## Included Shape
+- 生产站点允许公开查看经过脱敏的演示项目。
+- 匿名访问只有结构化演示数据读取权限，不能读取附件、审批、审计或集成控制台，也不能写入。
+- 工作区身份登录后，服务端从身份请求头识别用户；第一个工作区用户作为初始化管理员，后续用户默认仅能查看演示项目。
+- 项目管理员需要在“数据底座与协同 → 权限与审批”中授予项目角色。所有 API 都会再次检查项目范围，不能只靠前端按钮控制权限。
+- 正式页面地址采用 `/projects/{projectId}/{module}`，刷新和分享链接不会丢失当前项目与模块。
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+## 数据与文件
 
-## Workspace Auth Headers
+- D1：项目、系统、Tag、接口、设备材料、BOM、订单、测试包、Punch、MOC、CWP、工作流、审批、版本和审计。
+- R2：图纸、计算书、ITP、照片、签字记录与竣工资料；D1 保存文件版本、哈希、签署与关联对象。
+- `drizzle/`：生产部署时随站点一起发布的数据库迁移。
 
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
+## 企业系统接入
 
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
+“数据底座与协同 → 数据接入”可以保存 ERP、计划、QMS、设备厂、BMS、EPMS 和 SCADA 的非敏感连接器配置。密钥必须放在部署环境绑定中，不能写入前端或 D1。
 
-Treat the full name as optional and fall back to email when it is absent:
+入站事件接口要求：
 
-```tsx
-import { headers } from "next/headers";
+- `x-fabflow-integration-key`：与部署环境中的 `INTEGRATION_API_KEY` 一致。
+- `Idempotency-Key`：每条外部事件的幂等键。
+- 对应项目连接器必须已启用。
 
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
+当前支持的事件包括 ERP 订单、QMS 试验包与 Punch、计划里程碑、设备厂型号与内部部件，以及 BMS / EPMS / SCADA 的 I/O、报警、能耗和趋势事件。真实上线前仍需由企业 IT 提供 API 地址、凭据、网络白名单、字段映射和回放策略。
 
-  const displayName = fullName ?? email;
-  // ...
-}
-```
+## 常用命令
 
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- `npm run dev`：启动本地开发服务器。
+- `npm run db:migrate:local`：初始化或升级本地 D1。
+- `npm run db:generate`：数据库结构变更后生成迁移。
+- `npm test`：执行构建与回归测试。
+- `npm run build`：生成 Sites/Cloudflare Worker 发布产物。

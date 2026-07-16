@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ModuleRouter } from "./modules";
 import { copyText, createWorkflowAction, openMasterData } from "@/lib/client-actions";
 import { facilityDomains, facilitySystems, getFacilitySystem, quickProjectSystems } from "@/lib/facility-systems";
+import { getCurrentModule, getCurrentProjectId, updateProjectUrl } from "@/lib/project-context";
 // 统一目录保留历史域别名映射：动力公用工程
 
 const navGroups = [
@@ -38,6 +39,10 @@ export default function Home() {
   const [points, setPoints] = useState(128);
   const [quantity, setQuantity] = useState(8);
   const [active, setActive] = useState("项目工作台");
+  const [projectId, setProjectId] = useState("");
+  const [projects, setProjects] = useState<Array<{id:string;code:string;name:string}>>([]);
+  const [principal, setPrincipal] = useState({displayName:"公开演示访客",email:"public@fabflow.demo",roles:["public_viewer"],authenticated:false});
+  const [canWrite, setCanWrite] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({project:true, design:true, systems:false, delivery:false, tools:false});
   const [added, setAdded] = useState<string[]>([]);
   const [materialFilter, setMaterialFilter] = useState("全部");
@@ -51,10 +56,10 @@ export default function Home() {
       void createWorkflowAction(nextMessage, "ui_workflow", { source: active }).catch(() => undefined);
     }
   };
-  const activate = (label:string, groupId?:string, context?:string) => { setActive(label); if(context && label==="系统工程域") window.sessionStorage.setItem("fabflow:system-domain",context); if(groupId) setOpenGroups(x=>({...x,[groupId]:true})); };
+  const activate = (label:string, groupId?:string, context?:string) => { setActive(label); updateProjectUrl(projectId, label); if(context && label==="系统工程域") window.sessionStorage.setItem("fabflow:system-domain",context); if(groupId) setOpenGroups(x=>({...x,[groupId]:true})); };
   const createBomItem = async (data:Record<string,unknown>, success:string) => {
     try {
-      const response = await fetch("/api/master-data", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({entity:"bomItems",data:{projectId:"proj-fab2a",quantity:1,unit:"件",unitPriceCny:0,wastePct:5,sourceType:"calculation",status:"draft",...data}}) });
+      const response = await fetch("/api/master-data", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({entity:"bomItems",data:{projectId,quantity:1,unit:"件",unitPriceCny:0,wastePct:5,sourceType:"calculation",status:"draft",...data}}) });
       const payload = await response.json();
       if(!response.ok) throw new Error(payload.error||"BOM 写入失败");
       notify(success);
@@ -63,7 +68,15 @@ export default function Home() {
   };
   const shownMaterials = materials.filter((item) => materialFilter === "全部" || (materialFilter === "316L" && item.spec.includes("316L")) || (materialFilter === "VCR" && item.name.includes("VCR")) || (materialFilter === "≤1MPa" && item.pressure <= 10));
   useEffect(() => {
-    const openMaster = () => { setActive("工程主数据录入"); setOpenGroups((current) => ({ ...current, delivery: true })); };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- URL state is available only after hydration
+    setProjectId(getCurrentProjectId()); setActive(getCurrentModule());
+    const onPopState = () => { setProjectId(getCurrentProjectId()); setActive(getCurrentModule()); };
+    window.addEventListener("popstate", onPopState);
+    void fetch("/api/master-data?entity=projects&allProjects=1&pageSize=100").then((response) => response.json()).then((payload) => { const rows=(payload.data?.projects ?? []) as Array<{id:string;code:string;name:string}>; setProjects(rows); if(payload.principal) setPrincipal(payload.principal); setCanWrite(Boolean(payload.permissions?.canWrite)); if(!getCurrentProjectId()&&rows[0]){setProjectId(rows[0].id);updateProjectUrl(rows[0].id,getCurrentModule(),true)} }).catch(() => undefined);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+  useEffect(() => {
+    const openMaster = () => { setActive("工程主数据录入"); updateProjectUrl(getCurrentProjectId(), "工程主数据录入"); setOpenGroups((current) => ({ ...current, delivery: true })); };
     window.addEventListener("fabflow:master-data", openMaster);
     return () => window.removeEventListener("fabflow:master-data", openMaster);
   }, []);
@@ -74,15 +87,16 @@ export default function Home() {
       <nav className="navGroups">{navGroups.map(group=><div className="navGroup" key={group.id}><button className="navGroupTitle" onClick={()=>setOpenGroups(x=>({...x,[group.id]:!x[group.id]}))}><span><em>{group.icon}</em><b>{group.title}</b></span><i>{openGroups[group.id]?"−":"＋"}</i></button>{openGroups[group.id]&&<div className="navGroupItems">{group.items.map(([icon,label])=><button key={label} className={active===label?"active":""} onClick={()=>activate(label,group.id)} title={label}><em>{icon}</em><span>{label}</span>{label==="合规校验中心"&&<small>3</small>}</button>)}</div>}</div>)}</nav>
       <div className="sidebarBottom">
         <button className="themeSwitch" onClick={()=>setDark(!dark)}><em>{dark?"☾":"☼"}</em><span>{dark?"暗黑工程版":"浅色办公版"}</span><i className={dark?"on":""}/></button>
-        <div className="profile"><div>TC</div><span><b>唐工程师</b><small>工艺设计部</small></span><button onClick={()=>setProfileOpen(!profileOpen)} aria-label="打开账户菜单">···</button></div>
-        {profileOpen&&<div className="profileMenu"><button onClick={()=>{activate("工程主数据录入","delivery");setProfileOpen(false)}}>✎ 主数据录入</button><button onClick={()=>{activate("数据底座与协同","delivery");setProfileOpen(false)}}>◌ 权限与审计</button></div>}
+        <div className="profile"><div>{principal.displayName.slice(0,2).toUpperCase()}</div><span><b>{principal.displayName}</b><small>{principal.authenticated?principal.roles.join(" · "):"公开只读演示"}</small></span><button onClick={()=>setProfileOpen(!profileOpen)} aria-label="打开账户菜单">···</button></div>
+        {profileOpen&&<div className="profileMenu">{!principal.authenticated&&<button disabled>公开访问：写入已锁定</button>}<button onClick={()=>{activate("工程主数据录入","delivery");setProfileOpen(false)}}>✎ 主数据录入</button><button onClick={()=>{activate("数据底座与协同","delivery");setProfileOpen(false)}}>◌ 权限与审计</button></div>}
       </div>
     </aside>
 
     <section className="workspace">
       <header>
-        <div><p>项目工作台 <span>/ FAB-2026-0715</span></p><h1>先进制程厂务扩建项目</h1></div>
-        <div className="headerActions"><button className="iconBtn" onClick={()=>setDrawer(true)}>⇄</button><button className="iconBtn" onClick={()=>activate("工程主数据录入","delivery")} title="搜索与编辑工程主数据">⌕</button><button className="primary" onClick={()=>activate("工程主数据录入","delivery")}>录入 / 保存数据 <span>⌘ S</span></button></div>
+        <div><p>项目工作台 <span>/ {projects.find((project) => project.id === projectId)?.code ?? projectId}</span></p><h1>{projects.find((project) => project.id === projectId)?.name ?? "先进制程厂务扩建项目"}</h1></div>
+        <div className="projectSwitcher"><span className={canWrite?"projectAccessBadge writable":"projectAccessBadge readonly"}>{canWrite?"可编辑":"公开只读"}</span><label>当前项目<select value={projectId} onChange={(event) => { setProjectId(event.target.value); setActive("项目工作台"); updateProjectUrl(event.target.value, "项目工作台"); }}>{projects.length ? projects.map((project) => <option key={project.id} value={project.id}>{project.code} · {project.name}</option>) : <option value={projectId}>{projectId}</option>}</select></label></div>
+        <div className="headerActions"><button className="iconBtn" onClick={()=>setDrawer(true)}>⇄</button><button className="iconBtn" onClick={()=>activate("工程主数据录入","delivery")} title="搜索与编辑工程主数据">⌕</button><button className="primary" disabled={!canWrite} title={canWrite?"进入工程主数据录入":"公开演示账号仅可查看；通过工作区身份登录并获得项目角色后可写入"} onClick={()=>activate("工程主数据录入","delivery")}>{canWrite?"录入 / 保存数据":"登录后可编辑"} <span>⌘ S</span></button></div>
       </header>
 
       <div className="content">

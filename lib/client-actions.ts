@@ -1,5 +1,7 @@
 "use client";
 
+import { getCurrentProjectId } from "./project-context";
+
 export function downloadText(fileName: string, content: string, type = "text/plain;charset=utf-8") {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -71,7 +73,7 @@ export async function createWorkflowAction(title: string, actionType = "ui_actio
   const response = await fetch("/api/workflow-actions", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ projectId: "proj-fab2a", actionType, title, payload }),
+    body: JSON.stringify({ projectId: getCurrentProjectId(), actionType, title, payload, upsert: true }),
   });
   const data = await response.json().catch(() => ({})) as { error?: string; action?: { id?: string } };
   if (!response.ok) throw new Error(data.error || "工作流动作保存失败");
