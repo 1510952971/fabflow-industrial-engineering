@@ -3,10 +3,12 @@
 import { useMemo, useState } from "react";
 import { ModuleRouter } from "./modules";
 
-const nav = [
-  ["⌂", "项目工作台"], ["◇", "介质参数录入"], ["⌁", "结构紧固件计算"],
-  ["⑂", "管路接头选型"], ["▣", "厂务大型设备库"], ["⊞", "机台二次配批量算量"],
-  ["✓", "合规校验中心"], ["▤", "BOM 成本报表"], ["◎", "全球建设管理"], ["⚙", "工程执行中心"], ["◫", "系统工程域"], ["▥", "设备工厂协同"], ["◌", "数据底座与协同"], ["◷", "计划与供应链"], ["⇄", "全局工具箱"], ["□", "项目档案库"],
+const navGroups = [
+  {id:"project", icon:"⌂", title:"项目工作流", items:[["⌂", "项目工作台"], ["◎", "全球建设管理"], ["⚙", "工程执行中心"], ["◷", "计划与供应链"]]},
+  {id:"design", icon:"◇", title:"设计与选型", items:[["◇", "介质参数录入"], ["⌁", "结构紧固件计算"], ["⑂", "管路接头选型"], ["▣", "厂务大型设备库"], ["⊞", "机台二次配批量算量"], ["▥", "设备工厂协同"]]},
+  {id:"systems", icon:"◫", title:"系统工程与校验", items:[["◫", "系统工程域"], ["✓", "合规校验中心"]]},
+  {id:"delivery", icon:"▤", title:"数据与交付", items:[["▤", "BOM 成本报表"], ["◌", "数据底座与协同"], ["□", "项目档案库"]]},
+  {id:"tools", icon:"⇄", title:"工具", items:[["⇄", "全局工具箱"]]},
 ];
 
 const materials = [
@@ -25,6 +27,14 @@ const systemDomains = [
   {id:"CTRL", name:"机电自控与能源管理", en:"MEP / Controls", scope:"BMS · EPMS · SCADA · PLC · I/O · 联锁", progress:49, color:"gray", icon:"⌘"},
 ];
 
+const workflowSteps = [
+  {no:"01", title:"项目定义", hint:"范围 / 目标 / 版本", target:"项目工作台", state:"当前"},
+  {no:"02", title:"设计选型", hint:"参数 / 物料 / BOM", target:"介质参数录入", state:"下一步"},
+  {no:"03", title:"系统校验", hint:"接口 / 合规 / 风险", target:"合规校验中心", state:"待进入"},
+  {no:"04", title:"工程执行", hint:"计划 / 采购 / 现场", target:"工程执行中心", state:"待进入"},
+  {no:"05", title:"交付归档", hint:"测试包 / Punch / 竣工", target:"项目档案库", state:"待进入"},
+];
+
 export default function Home() {
   const [dark, setDark] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -34,6 +44,7 @@ export default function Home() {
   const [points, setPoints] = useState(128);
   const [quantity, setQuantity] = useState(8);
   const [active, setActive] = useState("项目工作台");
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({project:true, design:true, systems:false, delivery:false, tools:false});
   const [added, setAdded] = useState<string[]>([]);
   const [toast, setToast] = useState("");
   const bolt = thickness <= 2 ? "M5 × 8" : thickness <= 4 ? "M5 × 12" : "M6 × 16";
@@ -44,7 +55,7 @@ export default function Home() {
     <aside className={collapsed ? "sidebar collapsed" : "sidebar"}>
       <div className="brand"><div className="brandmark"><i/><i/><i/></div><div><b>FabFlow</b><span>厂务流体智能选型</span></div></div>
       <button className="collapse" onClick={()=>setCollapsed(!collapsed)} aria-label="折叠菜单">{collapsed ? "›" : "‹"}</button>
-      <nav>{nav.map(([icon,label])=><button key={label} className={active===label?"active":""} onClick={()=>setActive(label)} title={label}><em>{icon}</em><span>{label}</span>{label==="合规校验中心"&&<small>3</small>}</button>)}</nav>
+      <nav className="navGroups">{navGroups.map(group=><div className="navGroup" key={group.id}><button className="navGroupTitle" onClick={()=>setOpenGroups(x=>({...x,[group.id]:!x[group.id]}))}><span><em>{group.icon}</em><b>{group.title}</b></span><i>{openGroups[group.id]?"−":"＋"}</i></button>{openGroups[group.id]&&<div className="navGroupItems">{group.items.map(([icon,label])=><button key={label} className={active===label?"active":""} onClick={()=>{setActive(label);setOpenGroups(x=>({...x,[group.id]:true}))}} title={label}><em>{icon}</em><span>{label}</span>{label==="合规校验中心"&&<small>3</small>}</button>)}</div>}</div>)}</nav>
       <div className="sidebarBottom">
         <button className="themeSwitch" onClick={()=>setDark(!dark)}><em>{dark?"☾":"☼"}</em><span>{dark?"暗黑工程版":"浅色办公版"}</span><i className={dark?"on":""}/></button>
         <div className="profile"><div>TC</div><span><b>唐工程师</b><small>工艺设计部</small></span><button>···</button></div>
@@ -68,6 +79,8 @@ export default function Home() {
           <div className="systemOverviewHead"><div><span>FAB FACILITY SYSTEMS</span><h2>厂务系统域总览</h2><p>6 个工程域 · 点击进入系统边界、接口、测试包与移交管理</p></div><button onClick={()=>setActive("系统工程域")}>进入系统工程域 <b>→</b></button></div>
           <div className="systemDomainGrid">{systemDomains.map(domain=><button key={domain.id} className="systemDomain" onClick={()=>setActive("系统工程域")}><div className={`systemDomainIcon ${domain.color}`}>{domain.icon}</div><div className="systemDomainCopy"><div><b>{domain.name}</b><span>{domain.id}</span></div><small>{domain.en} · {domain.scope}</small><div className="systemDomainProgress"><i style={{width:`${domain.progress}%`}}/><em>{domain.progress}%</em></div></div><span className="systemDomainArrow">↗</span></button>)}</div>
         </section>
+
+        <section className="workflowStrip card"><div className="workflowHead"><div><span>PROJECT CONTROL PATH</span><h2>当前项目工作流</h2></div><p>按顺序推进，减少跨模块查找</p></div><div className="workflowSteps">{workflowSteps.map((step,index)=><button key={step.no} className={index===0?"current":""} onClick={()=>setActive(step.target)}><i>{step.no}</i><span><b>{step.title}</b><small>{step.hint}</small></span><em>{step.state}</em>{index<workflowSteps.length-1&&<strong>→</strong>}</button>)}</div></section>
 
         <div className="sectionTitle"><div><h2>今日工作面板</h2><p>核心参数实时联动 · 卡片可按习惯自由排布</p></div><button>＋ 添加模块</button></div>
 
