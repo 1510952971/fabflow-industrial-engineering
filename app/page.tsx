@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ModuleRouter } from "./modules";
-import { downloadCsv, openMasterData } from "@/lib/client-actions";
+import { copyText, createWorkflowAction, openMasterData } from "@/lib/client-actions";
 
 const navGroups = [
   {id:"project", icon:"⌂", title:"项目工作流", items:[["⌂", "项目工作台"], ["◎", "全球建设管理"], ["⚙", "工程执行中心"], ["◷", "计划与供应链"]]},
@@ -52,7 +52,12 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const bolt = thickness <= 2 ? "M5 × 8" : thickness <= 4 ? "M5 × 12" : "M6 × 16";
   const total = useMemo(() => points * 4, [points]);
-  const notify = (message:string) => { setToast(message); window.setTimeout(()=>setToast(""), 1800); };
+  const notify = (message:string) => {
+    setToast(message); window.setTimeout(()=>setToast(""), 1800);
+    if (/已创建|已新增|已保存|已更新|已关闭|已批准|已下发|已分派|已发送|已签发|已应用|已升级|已发起/.test(message)) {
+      void createWorkflowAction(message, "ui_workflow", { source: active }).catch(() => undefined);
+    }
+  };
   const activate = (label:string, groupId?:string) => { setActive(label); if(groupId) setOpenGroups(x=>({...x,[groupId]:true})); };
   const createBomItem = async (data:Record<string,unknown>, success:string) => {
     try {
@@ -69,23 +74,6 @@ export default function Home() {
     window.addEventListener("fabflow:master-data", openMaster);
     return () => window.removeEventListener("fabflow:master-data", openMaster);
   }, []);
-  // 为旧模块中仍未接入后端的固定操作提供明确的可执行行为，避免按钮点击无反馈。
-  useEffect(() => {
-    const handleUnwiredAction = (event: MouseEvent) => {
-      const button = (event.target as HTMLElement).closest("button");
-      if (!button) return;
-      const label = button.textContent?.replace(/\s+/g, " ").trim();
-      if (label === "导入 Vendor Data") { openMasterData("equipmentModels"); notify("已打开设备型号主数据，可导入 Vendor Data"); }
-      else if (label === "导出催交清单") { downloadCsv("fabflow-expediting-list.csv", ["LLI","物料","Vendor","PO","承诺交期","最新预测","状态"], [["LLI-004","VMB Cabinet","Apex Systems","PO-26-01790","2026-07-24","2026-07-27","风险"],["LLI-007","UPW Pump Skid","PureTech","PO-26-01842","2026-08-02","2026-08-02","正常"]]); notify("催交清单已下载"); }
-      else if (label === "打印收货标签") { window.print(); notify("已打开收货标签打印预览"); }
-      else if (label === "扫描试验包") { openMasterData("testPacks"); notify("已打开测试包主数据"); }
-      else if (label === "管理系统边界") { openMasterData("systems"); notify("已打开系统边界主数据"); }
-      else if (label === "两周滚动计划") { notify("两周滚动计划已定位到当前工作包"); }
-    };
-    document.addEventListener("click", handleUnwiredAction);
-    return () => document.removeEventListener("click", handleUnwiredAction);
-  }, []);
-
   return <main className={dark ? "app dark" : "app"}>
     <aside className={collapsed ? "sidebar collapsed" : "sidebar"}>
       <div className="brand"><div className="brandmark"><i/><i/><i/></div><div><b>FabFlow</b><span>厂务流体智能选型</span></div></div>
@@ -166,7 +154,7 @@ export default function Home() {
     </section>
 
     <button className="drawerTab" onClick={()=>setDrawer(true)}>工具箱 <span>⇄</span></button>
-    {drawer&&<><div className="overlay" onClick={()=>setDrawer(false)}/><aside className="drawer"><div className="drawerHead"><div><span>QUICK TOOLS</span><h2>工程辅助工具箱</h2></div><button onClick={()=>setDrawer(false)}>×</button></div><div className="toolTabs"><button className="active">单位换算</button><button>材质禁忌</button><button>扭矩速查</button></div><div className="converter card"><label>压力 · MPa<input value={pressure} onChange={e=>setPressure(+e.target.value)}/></label><button>⇅</button><label>压力 · psi<input readOnly value={(pressure*145.038).toFixed(2)}/></label><p>常用值 <button onClick={()=>setPressure(6.895)}>1000 psi</button><button onClick={()=>setPressure(0.7)}>0.7 MPa</button></p></div><div className="toolCard"><span>CURRENT BOM</span><h3>当前项目物料</h3><div><b>{1284+added.length}</b><small>总物料数量</small></div><button onClick={()=>notify("CAD 标注文本已复制")}>复制 CAD 标注文本</button></div></aside></>}
+    {drawer&&<><div className="overlay" onClick={()=>setDrawer(false)}/><aside className="drawer"><div className="drawerHead"><div><span>QUICK TOOLS</span><h2>工程辅助工具箱</h2></div><button onClick={()=>setDrawer(false)}>×</button></div><div className="toolTabs"><button className="active" onClick={()=>setDrawer(true)}>单位换算</button><button onClick={()=>openMasterData("materialCompatibility")}>材质禁忌</button><button onClick={()=>void copyText("M4 2.4 N·m\nM5 4.8 N·m\nM6 8.3 N·m").then(()=>notify("扭矩标准已复制"))}>扭矩速查</button></div><div className="converter card"><label>压力 · MPa<input value={pressure} onChange={e=>setPressure(+e.target.value)}/></label><button onClick={()=>void copyText(`${(pressure*145.038).toFixed(2)} psi`).then(()=>notify("psi 数值已复制"))}>复制 psi</button><label>压力 · psi<input readOnly value={(pressure*145.038).toFixed(2)}/></label><p>常用值 <button onClick={()=>setPressure(6.895)}>1000 psi</button><button onClick={()=>setPressure(0.7)}>0.7 MPa</button></p></div><div className="toolCard"><span>CURRENT BOM</span><h3>当前项目物料</h3><div><b>{1284+added.length}</b><small>总物料数量</small></div><button onClick={()=>void copyText(`FAB2A-BOM ${1284+added.length} PCS\nM5×8 四组合螺栓\n316L EP / BA 按系统规格执行`).then(()=>notify("CAD 标注文本已复制")).catch(error=>notify(error instanceof Error?error.message:"复制失败"))}>复制 CAD 标注文本</button></div></aside></>}
     {toast&&<div className="toast">✓ {toast}</div>}
   </main>;
 }

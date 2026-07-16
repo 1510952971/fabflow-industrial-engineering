@@ -169,6 +169,63 @@ export const punchItems = sqliteTable("punch_items", {
   index("punch_items_status_idx").on(table.projectId, table.status),
 ]);
 
+export const managementOfChanges = sqliteTable("management_of_changes", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  systemId: text("system_id").references(() => systems.id),
+  mocNumber: text("moc_number").notNull(),
+  title: text("title").notNull(),
+  reason: text("reason").notNull(),
+  riskLevel: text("risk_level").notNull().default("medium"),
+  costImpactCny: real("cost_impact_cny").notNull().default(0),
+  scheduleImpactDays: integer("schedule_impact_days").notNull().default(0),
+  ownerEmail: text("owner_email"),
+  status: text("status").notNull().default("draft"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("moc_project_number_uq").on(table.projectId, table.mocNumber),
+  index("moc_project_status_idx").on(table.projectId, table.status),
+]);
+
+export const constructionWorkPackages = sqliteTable("construction_work_packages", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  systemId: text("system_id").references(() => systems.id),
+  packageNumber: text("package_number").notNull(),
+  title: text("title").notNull(),
+  area: text("area").notNull(),
+  ownerEmail: text("owner_email"),
+  plannedStart: text("planned_start"),
+  readinessJson: text("readiness_json").notNull().default("{}"),
+  status: text("status").notNull().default("draft"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("cwp_project_number_uq").on(table.projectId, table.packageNumber),
+  index("cwp_project_status_idx").on(table.projectId, table.status),
+]);
+
+export const workflowActions = sqliteTable("workflow_actions", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").references(() => projects.id),
+  actionType: text("action_type").notNull(),
+  title: text("title").notNull(),
+  entityType: text("entity_type"),
+  entityId: text("entity_id"),
+  status: text("status").notNull().default("open"),
+  assignedTo: text("assigned_to"),
+  dueAt: text("due_at"),
+  payloadJson: text("payload_json").notNull().default("{}"),
+  requestedBy: text("requested_by").notNull(),
+  completedAt: text("completed_at"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  index("workflow_actions_project_status_idx").on(table.projectId, table.status),
+  index("workflow_actions_entity_idx").on(table.entityType, table.entityId),
+]);
+
 export const equipmentFactories = sqliteTable("equipment_factories", {
   id: text("id").primaryKey(),
   code: text("code").notNull(),

@@ -168,13 +168,36 @@ const definitions: Record<string, EntityDefinition> = {
       { key: "description", label: "问题描述", type: "textarea", required: true, wide: true }, { key: "ownerEmail", label: "责任人" },
       { key: "dueDate", label: "要求完成日", type: "date" }, { key: "closedAt", label: "实际关闭日", type: "date" }, { key: "status", label: "状态", type: "select", options: ["open", "in_progress", "ready_for_verification", "closed", "rejected"] }],
   },
+  managementOfChanges: {
+    label: "MOC 变更", plural: "MOC 变更台账", icon: "△", description: "技术变更、影响、责任人和审批状态的权威记录", title: ["mocNumber", "title"], subtitle: ["riskLevel", "status"],
+    defaults: { riskLevel: "medium", costImpactCny: 0, scheduleImpactDays: 0, status: "draft" },
+    fields: [projectField, systemField, { key: "mocNumber", label: "MOC 编号", required: true }, { key: "title", label: "变更标题", required: true, wide: true },
+      { key: "reason", label: "变更原因", type: "textarea", required: true, wide: true }, { key: "riskLevel", label: "风险等级", type: "select", options: ["low", "medium", "high", "critical"], required: true },
+      { key: "costImpactCny", label: "成本影响 CNY", type: "number" }, { key: "scheduleImpactDays", label: "工期影响 天", type: "number" }, { key: "ownerEmail", label: "责任人" },
+      { key: "status", label: "状态", type: "select", options: ["draft", "impact_review", "pending_approval", "approved", "executing", "closed", "rejected"] }],
+  },
+  constructionWorkPackages: {
+    label: "施工工作包", plural: "CWP / IWP 台账", icon: "▣", description: "施工边界、作业面、责任人、计划时间和放行条件", title: ["packageNumber", "title"], subtitle: ["area", "status"],
+    defaults: { readinessJson: "{}", status: "draft" },
+    fields: [projectField, systemField, { key: "packageNumber", label: "工作包编号", required: true }, { key: "title", label: "工作包名称", required: true, wide: true },
+      { key: "area", label: "施工区域", required: true }, { key: "ownerEmail", label: "负责人" }, { key: "plannedStart", label: "计划开工", type: "date" },
+      { key: "readinessJson", label: "放行条件 JSON", type: "json", wide: true }, { key: "status", label: "状态", type: "select", options: ["draft", "constraints", "ready", "released", "executing", "completed", "closed"] }],
+  },
+  workflowActions: {
+    label: "工作流动作", plural: "行动与会议台账", icon: "✓", description: "会议、催办、评审、签发和跨专业动作的持久化记录", title: ["actionType", "title"], subtitle: ["assignedTo", "status"],
+    defaults: { projectId: "proj-fab2a", actionType: "task", status: "open", requestedBy: "ui" },
+    fields: [projectField, { key: "actionType", label: "动作类型", required: true }, { key: "title", label: "动作标题", required: true, wide: true },
+      { key: "entityType", label: "关联对象类型" }, { key: "entityId", label: "关联对象 ID" }, { key: "assignedTo", label: "责任人" }, { key: "dueAt", label: "到期时间", type: "date" },
+      { key: "payloadJson", label: "补充信息 JSON", type: "json", wide: true }, { key: "requestedBy", label: "发起人", required: true }, { key: "completedAt", label: "完成时间", type: "date" },
+      { key: "status", label: "状态", type: "select", options: ["open", "in_progress", "completed", "closed", "cancelled"] }],
+  },
 };
 
 const groups = [
   { id: "engineering", label: "项目与系统", entities: ["projects", "systems", "tags", "interfaces"] },
   { id: "equipment", label: "设备工厂", entities: ["equipmentFactories", "equipmentModels", "equipmentComponents", "equipmentPorts"] },
   { id: "rules", label: "材料与规则", entities: ["materials", "materialCompatibility", "technicalRules", "brandRules"] },
-  { id: "delivery", label: "采购与交付", entities: ["bomItems", "purchaseOrders", "testPacks", "punchItems"] },
+  { id: "delivery", label: "采购与交付", entities: ["bomItems", "purchaseOrders", "testPacks", "punchItems", "managementOfChanges", "constructionWorkPackages", "workflowActions"] },
 ];
 
 const entityKeys = Object.keys(definitions);
@@ -243,8 +266,11 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
 
   useEffect(() => {
     const target = window.sessionStorage.getItem("fabflow:master-entity");
+    const targetQuery = window.sessionStorage.getItem("fabflow:master-query");
     if (target && definitions[target]) window.setTimeout(() => setActiveEntity(target), 0);
+    if (targetQuery) window.setTimeout(() => setQuery(targetQuery), 50);
     window.sessionStorage.removeItem("fabflow:master-entity");
+    window.sessionStorage.removeItem("fabflow:master-query");
     window.setTimeout(() => void load(), 0);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

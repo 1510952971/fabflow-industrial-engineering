@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   bomItems,
+  constructionWorkPackages,
   equipmentComponents,
   equipmentFactories,
   equipmentModels,
@@ -10,6 +11,7 @@ import {
   materialApprovalRules,
   materialCompatibility,
   materials,
+  managementOfChanges,
   projects,
   punchItems,
   purchaseOrders,
@@ -17,6 +19,7 @@ import {
   tags,
   technicalMaterialRules,
   testPacks,
+  workflowActions,
 } from "@/db/schema";
 import { ApiError, errorResponse } from "@/lib/api";
 import { writeAudit } from "@/lib/audit";
@@ -114,6 +117,21 @@ const entityConfigs: Record<string, EntityConfig> = {
     table: punchItems, idColumn: punchItems.id, label: "Punch",
     fields: { projectId: "text", systemId: "text", punchNumber: "text", category: "text", description: "text", ownerEmail: "text", dueDate: "text", status: "text", closedAt: "text" },
     required: ["projectId", "punchNumber", "category", "description"],
+  },
+  managementOfChanges: {
+    table: managementOfChanges, idColumn: managementOfChanges.id, label: "MOC 变更",
+    fields: { projectId: "text", systemId: "text", mocNumber: "text", title: "text", reason: "text", riskLevel: "text", costImpactCny: "number", scheduleImpactDays: "integer", ownerEmail: "text", status: "text" },
+    required: ["projectId", "mocNumber", "title", "reason", "riskLevel"],
+  },
+  constructionWorkPackages: {
+    table: constructionWorkPackages, idColumn: constructionWorkPackages.id, label: "施工工作包",
+    fields: { projectId: "text", systemId: "text", packageNumber: "text", title: "text", area: "text", ownerEmail: "text", plannedStart: "text", readinessJson: "json", status: "text" },
+    required: ["projectId", "packageNumber", "title", "area"],
+  },
+  workflowActions: {
+    table: workflowActions, idColumn: workflowActions.id, label: "工作流动作",
+    fields: { projectId: "text", actionType: "text", title: "text", entityType: "text", entityId: "text", status: "text", assignedTo: "text", dueAt: "text", payloadJson: "json", requestedBy: "text", completedAt: "text" },
+    required: ["actionType", "title", "requestedBy"],
   },
 };
 

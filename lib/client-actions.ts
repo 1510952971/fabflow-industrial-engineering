@@ -59,7 +59,20 @@ export function parseCsv(text: string) {
   return rows;
 }
 
-export function openMasterData(entity: string) {
+export function openMasterData(entity: string, query = "") {
   window.sessionStorage.setItem("fabflow:master-entity", entity);
+  if (query) window.sessionStorage.setItem("fabflow:master-query", query);
+  else window.sessionStorage.removeItem("fabflow:master-query");
   window.dispatchEvent(new CustomEvent("fabflow:master-data", { detail: { entity } }));
+}
+
+export async function createWorkflowAction(title: string, actionType = "ui_action", payload: Record<string, unknown> = {}) {
+  const response = await fetch("/api/workflow-actions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "proj-fab2a", actionType, title, payload }),
+  });
+  const data = await response.json().catch(() => ({})) as { error?: string; action?: { id?: string } };
+  if (!response.ok) throw new Error(data.error || "工作流动作保存失败");
+  return data.action;
 }

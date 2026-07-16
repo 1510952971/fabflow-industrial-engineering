@@ -22,6 +22,13 @@
       "when": 1784173229907,
       "tag": "0002_wealthy_praxagora",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784178374602,
+      "tag": "0003_special_hairball",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { count, eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { approvalRequests, attachments, auditLogs, bomItems, equipmentModels, integrationEvents, interfaces, materials, projects, punchItems, systems, tags, testPacks } from "@/db/schema";
+import { approvalRequests, attachments, auditLogs, bomItems, constructionWorkPackages, equipmentModels, integrationEvents, interfaces, managementOfChanges, materials, projects, punchItems, systems, tags, testPacks, workflowActions } from "@/db/schema";
 import { authorize } from "@/lib/auth";
 import { errorResponse } from "@/lib/api";
 
@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   try {
     const principal = await authorize(request, "data:read");
     const db = getDb();
-    const [projectCount, systemCount, tagCount, interfaceCount, materialCount, bomCount, testPackCount, punchCount, equipmentCount, attachmentCount, auditCount, approvalCount, eventCount] = await Promise.all([
+    const [projectCount, systemCount, tagCount, interfaceCount, materialCount, bomCount, testPackCount, punchCount, equipmentCount, mocCount, cwpCount, workflowCount, attachmentCount, auditCount, approvalCount, eventCount] = await Promise.all([
       db.select({ value: count() }).from(projects),
       db.select({ value: count() }).from(systems),
       db.select({ value: count() }).from(tags),
@@ -18,6 +18,9 @@ export async function GET(request: Request) {
       db.select({ value: count() }).from(testPacks),
       db.select({ value: count() }).from(punchItems),
       db.select({ value: count() }).from(equipmentModels),
+      db.select({ value: count() }).from(managementOfChanges),
+      db.select({ value: count() }).from(constructionWorkPackages),
+      db.select({ value: count() }).from(workflowActions),
       db.select({ value: count() }).from(attachments),
       db.select({ value: count() }).from(auditLogs),
       db.select({ value: count() }).from(approvalRequests).where(eq(approvalRequests.status, "pending")),
@@ -30,6 +33,7 @@ export async function GET(request: Request) {
       counts: {
         projects: value(projectCount), systems: value(systemCount), tags: value(tagCount), interfaces: value(interfaceCount),
         materials: value(materialCount), bomItems: value(bomCount), testPacks: value(testPackCount), punchItems: value(punchCount), equipmentModels: value(equipmentCount),
+        managementOfChanges: value(mocCount), constructionWorkPackages: value(cwpCount), workflowActions: value(workflowCount),
         attachments: value(attachmentCount), auditLogs: value(auditCount), pendingApprovals: value(approvalCount), queuedEvents: value(eventCount),
       },
     });
