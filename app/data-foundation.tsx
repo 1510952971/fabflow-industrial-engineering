@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Notify = (message: string) => void;
 
@@ -57,8 +57,11 @@ export function DataFoundationPage({ notify }: { notify: Notify }) {
   const [sources, setSources] = useState(initialSources);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [showBlueprint, setShowBlueprint] = useState(false);
+  const [foundation, setFoundation] = useState<{storage?:{d1:string;r2:string};principal?:{displayName:string;roles:string[]};counts?:Record<string,number>} | null>(null);
+  const [foundationError, setFoundationError] = useState("");
 
   const healthy = useMemo(() => sources.filter((s) => s.status === "健康").length, [sources]);
+  useEffect(() => { fetch("/api/foundation/summary").then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error); return data; }).then(setFoundation).catch((error) => setFoundationError(error instanceof Error ? error.message : "数据底座连接失败")); }, []);
   const syncSource = (id: string) => {
     setSyncing(id);
     window.setTimeout(() => {
@@ -70,7 +73,8 @@ export function DataFoundationPage({ notify }: { notify: Notify }) {
 
   return <>
     <div className="moduleTop dataTop"><div><span>DATA FOUNDATION & GOVERNANCE</span><h2>数据底座与协同控制台</h2><p>把计划、采购、质量、测试、移交和附件统一挂到同一个项目对象，所有变化可追溯、可审批、可对账。</p></div><div className="moduleActions"><button className="softButton" onClick={() => setShowBlueprint(!showBlueprint)}>查看落地蓝图</button><button className="primaryButton" onClick={() => notify("数据接入申请已创建")}>＋ 新增数据源</button></div></div>
-    <div className="dataKpis"><section className="card"><span>已接入数据源</span><b>{healthy}<small> / {sources.length}</small></b><p>ERP、QMS 已保持健康同步</p></section><section className="card"><span>待处理事件</span><b>42<small> 条</small></b><p className="amberText">7 条超过 SLA 4 小时</p></section><section className="card"><span>审批中对象</span><b>18<small> 个</small></b><p>设计输入、替代料、RFC、Punch</p></section><section className="card"><span>审计覆盖率</span><b>98<small>%</small></b><p>所有写操作保留操作者与版本</p></section></div>
+    <div className={`dataBackendState card ${foundation?"connected":""}`}><i>{foundation?"✓":"…"}</i><span><b>{foundation?"D1 + R2 权威数据底座已连接":foundationError||"正在验证服务端数据底座"}</b><small>{foundation?`${foundation.principal?.displayName} · ${foundation.principal?.roles.join(" / ")} · 所有写入执行服务端 RBAC 与审计`:"发布环境会使用工作区身份，不以浏览器状态作为权限依据"}</small></span><em>{foundation?"ONLINE":"CHECKING"}</em></div>
+    <div className="dataKpis"><section className="card"><span>D1 权威对象</span><b>{foundation?.counts?Object.entries(foundation.counts).filter(([key])=>["projects","systems","tags","interfaces","materials","testPacks","punchItems","equipmentModels"].includes(key)).reduce((sum,[,value])=>sum+value,0):"—"}<small> 条</small></b><p>项目、系统、Tag、接口、物料与工程记录</p></section><section className="card"><span>R2 文件证据</span><b>{foundation?.counts?.attachments??"—"}<small> 份</small></b><p>图纸、计算书、ITP、照片与签字记录</p></section><section className="card"><span>审批中对象</span><b>{foundation?.counts?.pendingApprovals??"—"}<small> 个</small></b><p>设计冻结、材料替代、RFC、Punch</p></section><section className="card"><span>审计事件</span><b>{foundation?.counts?.auditLogs??"—"}<small> 条</small></b><p>操作者、版本、来源和变更前后值</p></section></div>
     <div className="dataTabs">{[["数据接入","Sources"],["权限与审批","RBAC / Workflow"],["附件与审计","R2 / Audit"],["落地蓝图","Roadmap"]].map(([label,sub]) => <button key={label} className={tab === label ? "active" : ""} onClick={() => setTab(label)}><i>{label === "数据接入" ? "⇄" : label === "权限与审批" ? "♙" : label === "附件与审计" ? "▧" : "⌁"}</i><span>{label}</span><small>{sub}</small></button>)}</div>
     {tab === "数据接入" && <SourceView sources={sources} syncing={syncing} syncSource={syncSource} notify={notify} />}
     {tab === "权限与审批" && <GovernanceView notify={notify} />}
