@@ -61,6 +61,24 @@ export function DataFoundationPage({ notify }: { notify: Notify }) {
   const [foundation, setFoundation] = useState<{storage?:{d1:string;r2:string};principal?:{displayName:string;roles:string[]};counts?:Record<string,number>} | null>(null);
   const [foundationError, setFoundationError] = useState("");
 
+  const copySchema = () => {
+    const schema = {
+      Project: ["id", "code", "phase", "site", "status"],
+      System: ["id", "projectId", "code", "owner", "status"],
+      Tag: ["id", "systemId", "tagNo", "service", "status"],
+      Interface: ["id", "systemId", "fromTag", "toTag", "status"],
+      Material: ["id", "code", "name", "material", "brand", "status"],
+      PurchaseOrder: ["id", "projectId", "poNo", "vendor", "status"],
+      TestPack: ["id", "systemId", "code", "status", "evidence"],
+      Punch: ["id", "systemId", "severity", "status", "dueDate"],
+      Attachment: ["id", "objectType", "objectId", "version", "r2Key"],
+      AuditLog: ["id", "actor", "action", "objectType", "objectId", "createdAt"],
+    };
+    void copyText(JSON.stringify(schema, null, 2))
+      .then(() => notify("JSON Schema 已复制到剪贴板"))
+      .catch((error) => notify(error instanceof Error ? error.message : "复制失败"));
+  };
+
   useEffect(() => { fetch("/api/foundation/summary").then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error); return data; }).then(setFoundation).catch((error) => setFoundationError(error instanceof Error ? error.message : "数据底座连接失败")); }, []);
   const syncSource = (id: string) => {
     const source = sources.find((item) => item.id === id);
@@ -74,7 +92,7 @@ export function DataFoundationPage({ notify }: { notify: Notify }) {
     <div className={`dataBackendState card ${foundation?"connected":""}`}><i>{foundation?"✓":"…"}</i><span><b>{foundation?"D1 + R2 权威数据底座已连接":foundationError||"正在验证服务端数据底座"}</b><small>{foundation?`${foundation.principal?.displayName} · ${foundation.principal?.roles.join(" / ")} · 所有写入执行服务端 RBAC 与审计`:"发布环境会使用工作区身份，不以浏览器状态作为权限依据"}</small></span><em>{foundation?"ONLINE":"CHECKING"}</em></div>
     <div className="dataKpis"><section className="card"><span>D1 权威对象</span><b>{foundation?.counts?Object.entries(foundation.counts).filter(([key])=>["projects","systems","tags","interfaces","materials","testPacks","punchItems","equipmentModels"].includes(key)).reduce((sum,[,value])=>sum+value,0):"—"}<small> 条</small></b><p>项目、系统、Tag、接口、物料与工程记录</p></section><section className="card"><span>R2 文件证据</span><b>{foundation?.counts?.attachments??"—"}<small> 份</small></b><p>图纸、计算书、ITP、照片与签字记录</p></section><section className="card"><span>审批中对象</span><b>{foundation?.counts?.pendingApprovals??"—"}<small> 个</small></b><p>设计冻结、材料替代、RFC、Punch</p></section><section className="card"><span>审计事件</span><b>{foundation?.counts?.auditLogs??"—"}<small> 条</small></b><p>操作者、版本、来源和变更前后值</p></section></div>
     <div className="dataTabs">{[["数据接入","Sources"],["权限与审批","RBAC / Workflow"],["附件与审计","R2 / Audit"],["落地蓝图","Roadmap"]].map(([label,sub]) => <button key={label} className={tab === label ? "active" : ""} onClick={() => setTab(label)}><i>{label === "数据接入" ? "⇄" : label === "权限与审批" ? "♙" : label === "附件与审计" ? "▧" : "⌁"}</i><span>{label}</span><small>{sub}</small></button>)}</div>
-    {tab === "数据接入" && <SourceView sources={sources} syncing={syncing} syncSource={syncSource} />}
+    {tab === "数据接入" && <SourceView sources={sources} syncing={syncing} syncSource={syncSource} copySchema={copySchema} />}
     {tab === "权限与审批" && <GovernanceView notify={notify} />}
     {tab === "附件与审计" && <EvidenceView notify={notify} />}
     {tab === "落地蓝图" && <RoadmapView notify={notify} />}
@@ -82,7 +100,7 @@ export function DataFoundationPage({ notify }: { notify: Notify }) {
   </>;
 }
 
-function SourceView({ sources, syncing, syncSource }: { sources: Source[]; syncing: string | null; syncSource: (id: string) => void }) {
+function SourceView({ sources, syncing, syncSource, copySchema }: { sources: Source[]; syncing: string | null; syncSource: (id: string) => void; copySchema: () => void }) {
   return <div className="dataGrid"><section className="card sourceBoard"><div className="dataHead"><div><span>SOURCE CONNECTORS</span><h3>企业数据源与同步健康度</h3><p>每个连接器都有负责人、同步频率、游标和失败重试记录。</p></div><button disabled title="需先配置 ERP/QMS/计划系统服务端凭据和队列 Worker">查看失败队列（待配置）</button></div><div className="sourceRows">{sources.map((s) => <div className="sourceRow" key={s.id}><i className={`sourceIcon ${s.status === "健康" ? "good" : s.status === "关注" ? "warn" : "idle"}`}>{s.id.slice(0, 2)}</i><span><b>{s.name}</b><small>{s.owner} · {s.mode}</small></span><div className="sourceCount"><b>{s.records}</b><small>记录</small></div><div><em className={`sourceStatus ${s.status === "健康" ? "good" : s.status === "关注" ? "warn" : "idle"}`}>{s.status}</em><small>{s.lastSync} · {s.cadence}</small></div><button className="syncButton" disabled={syncing === s.id} onClick={() => syncSource(s.id)}>{syncing === s.id ? "检查中…" : s.status === "待配置" ? "检查配置" : "检查连接"}</button></div>)}</div></section><aside className="card eventQueue"><span>EVENT QUEUE</span><h3>事件总线</h3><div className="queueRing"><b>87%</b><small>处理成功率</small></div><p><span>待处理</span><b>42</b></p><p><span>重试中</span><b className="amberText">7</b></p><p><span>死信队列</span><b className="redText">2</b></p><button className="fullPrimary" disabled title="需先部署队列 Worker 并配置集成密钥">查看事件详情（待配置）</button></aside><section className="card dataContract"><div className="dataHead"><div><span>CANONICAL MODEL</span><h3>统一对象与数据契约</h3></div><button onClick={copySchema}>复制 JSON Schema</button></div><div className="contractGrid">{[["Project","项目主键、阶段、厂区"],["System","系统边界、负责人、状态"],["Tag / Interface","Tag、接口、Cause & Effect"],["Material / PO","物料、供应商、订单与收货"],["Test Pack / Punch","测试证据、NCR、Punch"],["Attachment / Audit","文件版本、签名、审计事件"]].map(([name,desc]) => <div key={name}><code>{name}</code><p>{desc}</p><i>→</i></div>)}</div></section></div>;
 }
 
