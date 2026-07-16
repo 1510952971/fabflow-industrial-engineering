@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { GlobalFabPage } from "./global-fab";
+import { EngineeringExecutionPage } from "./engineering-execution";
 
 type Notify = (message: string) => void;
 type PointRow = { id: number; area: string; structure: string; thickness: number; points: number };
@@ -21,6 +22,7 @@ const catalog = [
 
 export function ModuleRouter({ active, notify }:{ active:string; notify:Notify }) {
   if (active === "全球建设管理") return <GlobalFabPage notify={notify}/>;
+  if (active === "工程执行中心") return <EngineeringExecutionPage notify={notify}/>;
   if (active === "介质参数录入" || active === "结构紧固件计算") return <CalculationPage notify={notify}/>;
   if (active === "管路接头选型" || active === "厂务大型设备库") return <LibraryPage notify={notify} equipment={active === "厂务大型设备库"}/>;
   if (active === "机台二次配批量算量") return <MachinePage notify={notify}/>;
