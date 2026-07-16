@@ -15,6 +15,16 @@ const materials = [
   {name:"PFA 扩口接头", spec:'3/8” · HP PFA', system:"湿化学品", color:"purple", pressure:42, price:128},
 ];
 
+// 首页展示完整厂务系统域，避免项目工作台只显示流体标签造成系统缺失的误解。
+const systemDomains = [
+  {id:"UTL", name:"动力公用工程", en:"Utilities", scope:"CDA · N₂ · PCW · 冷冻水 · 电力", progress:76, color:"blue", icon:"⚡"},
+  {id:"CR", name:"洁净室与洁净包", en:"Cleanroom Package", scope:"ISO 4/5 · MAU · FFU · HEPA · 压差", progress:68, color:"cyan", icon:"▦"},
+  {id:"WTR", name:"纯水与废水", en:"UPW / Wastewater", scope:"RO · EDI · UPW Loop · 酸碱废水 · 中和", progress:63, color:"green", icon:"≈"},
+  {id:"EXH", name:"工艺排风", en:"Process Exhaust", scope:"酸排 · 碱排 · 溶剂排 · Scrubber · 监测", progress:57, color:"purple", icon:"⌁"},
+  {id:"FIRE", name:"消防与生命安全", en:"Fire & Life Safety", scope:"消防水 · 喷淋 · VESDA · F&G · 防火分区", progress:71, color:"orange", icon:"♢"},
+  {id:"CTRL", name:"机电自控与能源管理", en:"MEP / Controls", scope:"BMS · EPMS · SCADA · PLC · I/O · 联锁", progress:49, color:"gray", icon:"⌘"},
+];
+
 export default function Home() {
   const [dark, setDark] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -52,6 +62,11 @@ export default function Home() {
         <section className="projectHero card">
           <div className="heroCopy"><div className="eyebrow"><i/> DESIGN IN PROGRESS</div><h2>Fab 2A 厂务系统深化设计</h2><p>南京 · 洁净等级 ISO 4 · 最后更新于 10 分钟前</p><div className="chips"><span className="chip blue">电子特气 VMB</span><span className="chip green">大宗 BSGS</span><span className="chip purple">湿化学品 CDS</span><span className="chip cyan">超纯水 UPW</span><button>＋ 添加系统</button></div></div>
           <div className="heroMetric"><span>设计完成度</span><b>68<small>%</small></b><div><i style={{width:"68%"}}/></div><p>12 个模块中已完成 8 个</p></div>
+        </section>
+
+        <section className="systemOverview card">
+          <div className="systemOverviewHead"><div><span>FAB FACILITY SYSTEMS</span><h2>厂务系统域总览</h2><p>6 个工程域 · 点击进入系统边界、接口、测试包与移交管理</p></div><button onClick={()=>setActive("系统工程域")}>进入系统工程域 <b>→</b></button></div>
+          <div className="systemDomainGrid">{systemDomains.map(domain=><button key={domain.id} className="systemDomain" onClick={()=>setActive("系统工程域")}><div className={`systemDomainIcon ${domain.color}`}>{domain.icon}</div><div className="systemDomainCopy"><div><b>{domain.name}</b><span>{domain.id}</span></div><small>{domain.en} · {domain.scope}</small><div className="systemDomainProgress"><i style={{width:`${domain.progress}%`}}/><em>{domain.progress}%</em></div></div><span className="systemDomainArrow">↗</span></button>)}</div>
         </section>
 
         <div className="sectionTitle"><div><h2>今日工作面板</h2><p>核心参数实时联动 · 卡片可按习惯自由排布</p></div><button>＋ 添加模块</button></div>
