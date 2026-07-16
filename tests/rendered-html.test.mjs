@@ -36,9 +36,9 @@ test("keeps the authoritative data workflow wired", async () => {
   assert.match(schema, /export const constructionWorkPackages/);
   assert.match(schema, /export const workflowActions/);
   assert.match(migration, /CREATE TABLE `bom_items`/);
-  assert.match(workflowMigration, /CREATE TABLE `management_of_changes`/);
-  assert.match(workflowMigration, /CREATE TABLE `construction_work_packages`/);
-  assert.match(workflowMigration, /CREATE TABLE `workflow_actions`/);
+  assert.match(workflowMigration, /CREATE TABLE IF NOT EXISTS `management_of_changes`/);
+  assert.match(workflowMigration, /CREATE TABLE IF NOT EXISTS `construction_work_packages`/);
+  assert.match(workflowMigration, /CREATE TABLE IF NOT EXISTS `workflow_actions`/);
   assert.match(auth, /"data:write"/);
 });
 
