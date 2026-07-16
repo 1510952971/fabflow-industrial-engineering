@@ -1,6 +1,8 @@
+import { isBrandApproved, normalizeMaterialText, parseJsonArray, type MaterialApprovalRule, type TechnicalMaterialRule } from "./material-rules";
+
 export type RuleResult = {
   ruleCode: string;
-  category: "介质" | "材料" | "压力" | "温度" | "接口" | "洁净" | "文件";
+  category: "介质" | "材料" | "压力" | "温度" | "接口" | "洁净" | "文件" | "品牌" | "技术文件";
   severity: "fatal" | "warning" | "info";
   status: "pass" | "fail" | "warning";
   expected: string;
@@ -15,6 +17,10 @@ export type SelectionInput = {
   nominalSize: string;
   operatingPressureMpa: number;
   operatingTemperatureC: number;
+  doubleContainment?: "single" | "double";
+  flexibleTube?: "none" | "PFA451HP";
+  technicalRule?: TechnicalMaterialRule;
+  brandRule?: MaterialApprovalRule | null;
 };
 
 type Component = {
@@ -65,6 +71,53 @@ export function validateSelection(input: SelectionInput, component: Component, m
   results.push(material.cleanlinessGrade === component.requiredCleanliness
     ? pass("CLEAN-001", "洁净", component.requiredCleanliness, material.cleanlinessGrade, "洁净等级匹配")
     : warn("CLEAN-001", "洁净", component.requiredCleanliness, material.cleanlinessGrade, "洁净等级需由设备厂与业主复核"));
+
+  const technicalRule = input.technicalRule;
+  const brandRule = input.brandRule ?? null;
+  if (technicalRule) {
+    const requiredGrade = normalizeMaterialText(technicalRule.requiredGrade);
+    const actualGrade = normalizeMaterialText(material.grade);
+    const requiredFinish = normalizeMaterialText(technicalRule.requiredFinish);
+    const actualFinish = normalizeMaterialText(material.surfaceFinish);
+    const gradeOk = requiredGrade.includes(actualGrade) || actualGrade.includes(requiredGrade);
+    const finishOk = requiredFinish === "" || actualFinish.includes(requiredFinish) || requiredFinish.includes(actualFinish);
+    results.push(gradeOk && finishOk
+      ? pass("SPEC-001", "技术文件", technicalRule.requiredGrade, `${material.grade} ${material.surfaceFinish}`, `符合 ${technicalRule.sourceClause} 技术文件要求`)
+      : fail("SPEC-001", "技术文件", technicalRule.requiredGrade, `${material.grade} ${material.surfaceFinish}`, "材料牌号/表面处理与技术文件不一致"));
+
+    const fittingOk = !technicalRule.fittingStandard || input.connectionStandard.toLowerCase().includes(technicalRule.fittingStandard.toLowerCase()) || technicalRule.fittingStandard.toLowerCase().includes(input.connectionStandard.toLowerCase());
+    results.push(fittingOk
+      ? pass("SPEC-002", "技术文件", technicalRule.fittingStandard, input.connectionStandard, "接头制式符合技术文件" )
+      : fail("SPEC-002", "技术文件", technicalRule.fittingStandard, input.connectionStandard, "接头制式不符合技术文件，禁止直接替代"));
+
+    const allowedSizes = parseJsonArray(technicalRule.nominalSizesJson);
+    if (allowedSizes.length) {
+      results.push(allowedSizes.includes(input.nominalSize)
+        ? pass("SPEC-003", "技术文件", allowedSizes.join(" / "), input.nominalSize, "管径在技术文件允许范围内")
+        : fail("SPEC-003", "技术文件", allowedSizes.join(" / "), input.nominalSize, "管径不在技术文件允许范围内"));
+    }
+    if (technicalRule.doubleContainment) {
+      results.push(input.doubleContainment === "double"
+        ? pass("SPEC-004", "技术文件", "双套管", "双套管", "该介质按技术文件完成双套管配置")
+        : fail("SPEC-004", "技术文件", "双套管", input.doubleContainment || "未选择", "该介质必须采用双套管，禁止单管发布"));
+    }
+    if (technicalRule.flexibleTubePolicy === "forbidden") {
+      results.push(input.flexibleTube === "none"
+        ? pass("SPEC-005", "技术文件", "禁止软管", "无软管", "Hookup 侧禁止使用软管和附加组件")
+        : fail("SPEC-005", "技术文件", "禁止软管", input.flexibleTube || "未选择", "Hookup 侧禁止使用软管和附加组件"));
+    }
+  } else {
+    results.push(warn("SPEC-000", "技术文件", "已建立介质技术规则", input.medium, "该介质暂未匹配技术文件规则，必须人工复核后才能冻结"));
+  }
+
+  if (brandRule) {
+    const brandApproved = isBrandApproved(material.manufacturer, brandRule);
+    results.push(brandApproved
+      ? pass("BRAND-001", "品牌", brandRule.allowedBrandsJson, material.manufacturer, `品牌符合 ${brandRule.ruleCode} 品牌报审表`)
+      : fail("BRAND-001", "品牌", brandRule.allowedBrandsJson, material.manufacturer, `品牌不在 ${brandRule.ruleCode} 品牌报审表中，禁止替代`));
+  } else {
+    results.push(warn("BRAND-000", "品牌", "品牌报审表规则", material.manufacturer, "该材料未建立品牌准入规则，需补充品牌报审证据"));
+  }
 
   const pressureLimit = Math.min(material.maxPressureMpa, port?.pressureRatingMpa ?? material.maxPressureMpa);
   const requiredPressure = Math.max(input.operatingPressureMpa, component.designPressureMpa);

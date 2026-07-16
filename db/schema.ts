@@ -228,6 +228,54 @@ export const materialCompatibility = sqliteTable("material_compatibility", {
   uniqueIndex("material_compatibility_medium_grade_uq").on(table.medium, table.materialGrade),
 ]);
 
+/** Project/package technical requirements extracted from the approved technical file. */
+export const technicalMaterialRules = sqliteTable("technical_material_rules", {
+  id: text("id").primaryKey(),
+  ruleCode: text("rule_code").notNull(),
+  packageCode: text("package_code").notNull(),
+  systemCode: text("system_code").notNull(),
+  serviceName: text("service_name").notNull(),
+  mediumCodesJson: text("medium_codes_json").notNull(),
+  approvalRuleCode: text("approval_rule_code"),
+  requiredGrade: text("required_grade").notNull(),
+  requiredFinish: text("required_finish").notNull(),
+  fittingStandard: text("fitting_standard").notNull(),
+  valveType: text("valve_type").notNull(),
+  flexibleTubePolicy: text("flexible_tube_policy").notNull().default("allowed"),
+  doubleContainment: integer("double_containment", { mode: "boolean" }).notNull().default(false),
+  nominalSizesJson: text("nominal_sizes_json").notNull().default("[]"),
+  restrictions: text("restrictions").notNull().default(""),
+  sourceDocument: text("source_document").notNull(),
+  sourcePages: text("source_pages").notNull(),
+  sourceClause: text("source_clause").notNull(),
+  status: text("status").notNull().default("active"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("technical_material_rules_code_uq").on(table.ruleCode),
+  index("technical_material_rules_system_idx").on(table.systemCode),
+]);
+
+/** Brand approval rows from the package brand approval table. */
+export const materialApprovalRules = sqliteTable("material_approval_rules", {
+  id: text("id").primaryKey(),
+  ruleCode: text("rule_code").notNull(),
+  packageCode: text("package_code").notNull(),
+  categoryCode: text("category_code").notNull(),
+  itemName: text("item_name").notNull(),
+  requiredGrade: text("required_grade").notNull(),
+  allowedBrandsJson: text("allowed_brands_json").notNull(),
+  restrictions: text("restrictions").notNull().default(""),
+  sourceDocument: text("source_document").notNull(),
+  sourcePage: text("source_page").notNull(),
+  status: text("status").notNull().default("approved"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("material_approval_rules_code_uq").on(table.ruleCode),
+  index("material_approval_rules_category_idx").on(table.categoryCode),
+]);
+
 export const selectionRuns = sqliteTable("selection_runs", {
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projects.id),

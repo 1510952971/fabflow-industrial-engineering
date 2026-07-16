@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { equipmentComponents, equipmentFactories, equipmentModels, equipmentPorts, materials } from "@/db/schema";
+import { equipmentComponents, equipmentFactories, equipmentModels, equipmentPorts, materialApprovalRules, materials, technicalMaterialRules } from "@/db/schema";
 import { authorize } from "@/lib/auth";
 import { errorResponse } from "@/lib/api";
 
@@ -17,6 +17,8 @@ export async function GET(request: Request) {
     const componentRows = await db.select().from(equipmentComponents);
     const portRows = await db.select().from(equipmentPorts);
     const materialRows = await db.select().from(materials).where(eq(materials.status, "approved"));
+    const technicalRules = await db.select().from(technicalMaterialRules).where(eq(technicalMaterialRules.status, "active"));
+    const brandRules = await db.select().from(materialApprovalRules).where(eq(materialApprovalRules.status, "approved"));
     return Response.json({
       principal,
       models: models.map((model) => ({
@@ -25,6 +27,8 @@ export async function GET(request: Request) {
         ports: portRows.filter((row) => row.equipmentModelId === model.id),
       })),
       materials: materialRows,
+      technicalRules,
+      brandRules,
     });
   } catch (error) { return errorResponse(error); }
 }

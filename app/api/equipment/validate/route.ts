@@ -1,10 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { equipmentComponents, equipmentModels, equipmentPorts, materialCompatibility, materials, selectionResults, selectionRuns } from "@/db/schema";
+import { equipmentComponents, equipmentModels, equipmentPorts, materialApprovalRules, materialCompatibility, materials, selectionResults, selectionRuns, technicalMaterialRules } from "@/db/schema";
 import { ApiError, errorResponse } from "@/lib/api";
 import { authorize } from "@/lib/auth";
 import { writeAudit } from "@/lib/audit";
 import { validateSelection, type SelectionInput } from "@/lib/selection-engine";
+import { findTechnicalRule } from "@/lib/material-rules";
 
 type Payload = SelectionInput & { projectId?: string; equipmentModelId?: string; componentId?: string; portId?: string };
 
@@ -23,8 +24,13 @@ export async function POST(request: Request) {
     if (!model || !component || !material) throw new ApiError(404, "设备、内部部件或材料不存在", "NOT_FOUND");
     const [compatibility] = await db.select().from(materialCompatibility).where(and(eq(materialCompatibility.medium, payload.medium), eq(materialCompatibility.materialGrade, material.grade))).limit(1);
     const [port] = payload.portId ? await db.select().from(equipmentPorts).where(and(eq(equipmentPorts.id, payload.portId), eq(equipmentPorts.equipmentModelId, model.id))).limit(1) : [undefined];
+    const technicalRules = await db.select().from(technicalMaterialRules).where(eq(technicalMaterialRules.status, "active"));
+    const technicalRule = findTechnicalRule(payload.medium, technicalRules);
+    const [brandRule] = technicalRule?.approvalRuleCode
+      ? await db.select().from(materialApprovalRules).where(and(eq(materialApprovalRules.ruleCode, technicalRule.approvalRuleCode), eq(materialApprovalRules.status, "approved"))).limit(1)
+      : [undefined];
 
-    const validation = validateSelection(payload, component, material, compatibility ?? null, port ?? null);
+    const validation = validateSelection({ ...payload, technicalRule: technicalRule ?? undefined, brandRule: brandRule ?? null }, component, material, compatibility ?? null, port ?? null);
     const runId = crypto.randomUUID();
     await db.insert(selectionRuns).values({
       id: runId,
@@ -41,6 +47,6 @@ export async function POST(request: Request) {
       projectId: payload.projectId ?? "proj-fab2a", action: "equipment.selection.validate", entityType: "selection_run", entityId: runId,
       after: { equipment: model.code, component: component.componentCode, material: material.code, status: validation.status, score: validation.score },
     });
-    return Response.json({ runId, equipment: model, component, material, port: port ?? null, ...validation }, { status: 201 });
+    return Response.json({ runId, equipment: model, component, material, port: port ?? null, technicalRule, brandRule: brandRule ?? null, ...validation }, { status: 201 });
   } catch (error) { return errorResponse(error); }
 }
