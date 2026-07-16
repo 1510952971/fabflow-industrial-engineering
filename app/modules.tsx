@@ -10,29 +10,17 @@ import { DataFoundationPage } from "./data-foundation";
 import { EquipmentFactoryPage } from "./equipment-factory";
 import { MasterDataPage } from "./master-data";
 import { MediaConditionsPage } from "./media-conditions";
+import { PipeSelectionPage } from "./pipe-selection";
+import { FacilityEquipmentPage } from "./facility-equipment";
+import { createBomRecords } from "@/lib/bom-actions";
+import { facilitySystemClass, getFacilitySystem } from "@/lib/facility-systems";
 
 type Notify = (message: string) => void;
 type PointRow = { id: number; area: string; structure: string; thickness: number; points: number };
 
 const systemClass: Record<string, string> = {
-  "电子特气": "blue", "大宗气体": "green", "湿化学品": "purple", "超纯水": "cyan", "厂务公辅": "gray", "机台二次配": "orange",
+  "电子特气": "blue", "电子特气 VMB": "blue", "大宗气体": "green", "大宗气体 BSGS": "green", "湿化学品": "purple", "湿化学品 CDS": "purple", "超纯水": "cyan", "超纯水 UPW": "cyan", "厂务公辅": "gray", "机台二次配": "orange",
 };
-
-const catalog = [
-  { id: "VCR-4-EP", name: "VCR 面密封接头", system: "电子特气", material: "316L EP", pressure: 8.3, size: '1/4”', temp: 120, pack: "10 件/盒", price: 186 },
-  { id: "TUBE-8-BA", name: "BA 不锈钢管", system: "大宗气体", material: "316L BA", pressure: 10.0, size: '1/2”', temp: 180, pack: "6 m/支", price: 92 },
-  { id: "PFA-6-F", name: "PFA 扩口接头", system: "湿化学品", material: "HP PFA", pressure: 1.0, size: '3/8”', temp: 95, pack: "5 件/袋", price: 128 },
-  { id: "UPW-PVDF", name: "PVDF 隔膜阀", system: "超纯水", material: "HP PVDF", pressure: 1.6, size: 'DN15', temp: 90, pack: "1 件/盒", price: 460 },
-  { id: "CDA-BV25", name: "CDA 球阀", system: "厂务公辅", material: "304L", pressure: 2.5, size: 'DN25', temp: 150, pack: "1 件/盒", price: 315 },
-  { id: "TOOL-KIT", name: "机台 Hook-up 套件", system: "机台二次配", material: "混合组件", pressure: 0.8, size: '标准套件', temp: 80, pack: "1 套/箱", price: 2380 },
-];
-
-async function createBomRecords(items:Record<string,unknown>[]) {
-  const response = await fetch("/api/master-data", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({entity:"bomItems",items:items.map(item=>({projectId:"proj-fab2a",quantity:1,unit:"件",unitPriceCny:0,wastePct:5,sourceType:"manual",status:"draft",...item}))}) });
-  const payload = await response.json();
-  if(!response.ok) throw new Error(payload.error||"BOM 写入失败");
-  return payload.imported as number;
-}
 
 export function ModuleRouter({ active, notify }:{ active:string; notify:Notify }) {
   if (active === "全球建设管理") return <GlobalFabPage notify={notify}/>;
@@ -44,7 +32,8 @@ export function ModuleRouter({ active, notify }:{ active:string; notify:Notify }
   if (active === "工程主数据录入") return <MasterDataPage notify={notify}/>;
   if (active === "介质参数录入") return <MediaConditionsPage notify={notify}/>;
   if (active === "结构紧固件计算") return <CalculationPage notify={notify}/>;
-  if (active === "管路接头选型" || active === "厂务大型设备库") return <LibraryPage notify={notify} equipment={active === "厂务大型设备库"}/>;
+  if (active === "管路接头选型") return <PipeSelectionPage notify={notify}/>;
+  if (active === "厂务大型设备库") return <FacilityEquipmentPage notify={notify}/>;
   if (active === "机台二次配批量算量") return <MachinePage notify={notify}/>;
   if (active === "合规校验中心") return <CompliancePage notify={notify}/>;
   if (active === "BOM 成本报表") return <BomPage notify={notify}/>;
@@ -105,24 +94,6 @@ function CalculationPage({notify}:{notify:Notify}) {
   </>;
 }
 
-function LibraryPage({notify,equipment}:{notify:Notify;equipment:boolean}) {
-  const [system,setSystem] = useState("全部系统"); const [material,setMaterial] = useState("全部材质"); const [query,setQuery] = useState(""); const [selected,setSelected] = useState<string[]>([]); const [viewMode,setViewMode]=useState<"card"|"compact">("card");
-  const equipmentCatalog = [
-    { id:"VMB-4L",name:"四路全自动 VMB",system:"电子特气",material:"316L EP",pressure:8.3,size:"4 Line",temp:60,pack:"整机",price:168000 },
-    { id:"CDS-200",name:"双桶化学品供应单元",system:"湿化学品",material:"PTFE / PFA",pressure:0.7,size:"200 L",temp:80,pack:"整机",price:236000 },
-    { id:"UPW-SKID",name:"UPW 抛光混床 Skid",system:"超纯水",material:"HP PVDF",pressure:1.0,size:"40 m³/h",temp:45,pack:"整机",price:420000 },
-  ];
-  const source = equipment ? equipmentCatalog : catalog;
-  const shown = source.filter(x=>(system==="全部系统"||x.system===system)&&(material==="全部材质"||x.material.includes(material))&&(x.name.toLowerCase().includes(query.toLowerCase())||x.id.toLowerCase().includes(query.toLowerCase())));
-  const addSelected=async()=>{if(!selected.length){notify("请先选择至少一项物料");return}try{const targets=source.filter(item=>selected.includes(item.id));await createBomRecords(targets.map(item=>({itemCode:item.id,itemName:item.name,specification:`${item.size} · ${item.material}`,quantity:1,unit:equipment?"台":"件",unitPriceCny:item.price,sourceType:equipment?"equipment":"catalog",sourceId:item.id})));notify(`已将 ${targets.length} 项写入 D1 项目 BOM`);setSelected([])}catch(error){notify(error instanceof Error?error.message:"BOM 写入失败")}};
-  return <>
-    <PageTop eyebrow={equipment?"FACILITY EQUIPMENT":"SMART CATALOG"} title={equipment?"厂务大型设备库":"管路与设备选型库"} desc={equipment?"标准化设备模块、技术参数与预算价格统一管理":"多维度筛选适配介质、材质、耐压、管径与温度工况"} actions={<button className="primaryButton" disabled={!selected.length} onClick={()=>void addSelected()}>写入 BOM · {selected.length}</button>}/>
-    <section className="card filterPanel"><div className="searchBox">⌕<input placeholder="搜索物料名称、规格或编码…" value={query} onChange={e=>setQuery(e.target.value)}/><kbd>⌘ K</kbd></div><div className="filterRow"><span>流体系统</span>{["全部系统","电子特气","大宗气体","湿化学品","超纯水","厂务公辅"].map(x=><button className={system===x?"active":""} onClick={()=>setSystem(x)} key={x}>{x}</button>)}</div><div className="filterRow"><span>材质</span>{["全部材质","316L","PFA","PVDF","304L"].map(x=><button className={material===x?"active":""} onClick={()=>setMaterial(x)} key={x}>{x}</button>)}</div></section>
-    <div className="catalogHeader"><p>找到 <b>{shown.length}</b> 项匹配结果 <span>· 按工况匹配度排序</span></p><div><button className={viewMode==="card"?"active":""} onClick={()=>setViewMode("card")}>卡片视图</button><button className={viewMode==="compact"?"active":""} onClick={()=>setViewMode("compact")}>紧凑视图</button></div></div>
-    <div className={`catalogGrid ${viewMode==="compact"?"compact":""}`}>{shown.map((item,index)=><article className="card catalogCard" key={item.id}><div className="catalogVisual"><div className="pipeShape"><i/><i/><i/></div><span>匹配度 {97-index*4}%</span></div><div className="catalogBody"><div className="catalogTitle"><div><small>{item.id}</small><h3>{item.name}</h3></div><span className={`chip ${systemClass[item.system]}`}>{item.system}</span></div><div className="catalogSpecs"><div><span>材质</span><b>{item.material}</b></div><div><span>耐压</span><b>{item.pressure} MPa</b></div><div><span>规格</span><b>{item.size}</b></div><div><span>耐温</span><b>{item.temp}°C</b></div></div><div className="pressureMeter"><span>耐压区间</span><div><i style={{width:`${Math.min(100,item.pressure*10)}%`}}/></div><b>{item.pressure} MPa</b></div><div className="catalogFoot"><span><small>参考单价</small><b>¥ {item.price.toLocaleString()}</b> / {item.pack}</span><button className={selected.includes(item.id)?"addedButton":""} onClick={()=>setSelected(selected.includes(item.id)?selected.filter(x=>x!==item.id):[...selected,item.id])}>{selected.includes(item.id)?"✓ 已选择":"＋ 选择"}</button></div></div></article>)}</div>
-  </>;
-}
-
 function MachinePage({notify}:{notify:Notify}) {
   const [category,setCategory]=useState("刻蚀 ETCH"); const [count,setCount]=useState(8); const [model,setModel]=useState("AX-300 高密度等离子刻蚀机");
   const groups=[{name:"工艺气路",icon:"⌁",color:"blue",items:18,amount:126},{name:"超纯水",icon:"≈",color:"cyan",items:9,amount:48},{name:"化学品",icon:"◇",color:"purple",items:8,amount:32},{name:"真空排气",icon:"◌",color:"gray",items:7,amount:64}];
@@ -155,7 +126,7 @@ function CompliancePage({notify}:{notify:Notify}) {
   </>;
 }
 
-type BomRow = { id: string; itemCode: string; itemName: string; specification: string; quantity: number; unit: string; unitPriceCny: number; wastePct: number; systemId?: string | null; };
+type BomRow = { id: string; itemCode: string; itemName: string; specification: string; quantity: number; unit: string; unitPriceCny: number; wastePct: number; systemId?: string | null; sourceId?: string | null; };
 
 function BomPage({notify}:{notify:Notify}) {
   const [margin,setMargin]=useState(8); const [selected,setSelected]=useState<string[]>([]); const [rows,setRows]=useState<BomRow[]>([]); const [query,setQuery]=useState(""); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
@@ -171,7 +142,7 @@ function BomPage({notify}:{notify:Notify}) {
     {error&&<div className="dataBackendState"><i>!</i><span><b>BOM 未能读取 D1</b><small>{error}</small></span></div>}
     <div className="bomKpis"><section className="card"><span>物料条目</span><b>{rows.length}<small>项</small></b><p>当前项目已持久化 BOM</p></section><section className="card"><span>物料总数量</span><b>{totalQuantity}<small>件</small></b><p>已含 {margin}% 采购余量</p></section><section className="card"><span>预估材料成本</span><b>¥ {sum.toLocaleString()}</b><p className="greenText">根据当前单价实时计算</p></section><section className="card costMini"><div className="miniDonut"/><span>成本构成</span><p>按系统与物料分类汇总</p></section></div>
     <section className="card marginControl"><div><span>采购余量</span><b>{margin}%</b><small>建议范围 5% — 15%，数量与成本实时联动</small></div><input type="range" min="5" max="15" value={margin} onChange={e=>setMargin(+e.target.value)}/><div className="rangeTicks"><span>5%</span><span>10%</span><span>15%</span></div></section>
-    <section className="card tableCard bomTable"><div className="bomToolbar"><div className="searchBox">⌕<input placeholder="搜索 BOM 编码、名称或规格…" value={query} onChange={e=>setQuery(e.target.value)}/><kbd>{shown.length} 项</kbd></div><div><button onClick={()=>openMasterData("bomItems")}>编辑 BOM 数据</button><button onClick={()=>window.print()}>打印预览</button></div></div><div className="dataTable"><table><thead><tr><th><input type="checkbox" checked={shown.length>0&&selected.length===shown.length} onChange={toggleAll}/></th><th>物料编码</th><th>物料名称</th><th>流体系统</th><th>规格 / 材质</th><th>单价</th><th>设计量</th><th>采购量</th><th>小计</th></tr></thead><tbody>{loading?<tr><td colSpan={9}>正在读取 D1 BOM…</td></tr>:shown.map((r)=>{const buy=Math.ceil(r.quantity*(1+margin/100));const systemName=r.systemId?({"sys-utl":"动力公用工程","sys-cr":"洁净室与洁净包","sys-wtr":"纯水与废水","sys-exh":"工艺排风","sys-fire":"消防与生命安全","sys-ctrl":"机电自控与能源管理"} as Record<string,string>)[r.systemId]||"未分配":"未分配";return <tr key={r.id}><td><input type="checkbox" checked={selected.includes(r.id)} onChange={()=>setSelected(selected.includes(r.id)?selected.filter(x=>x!==r.id):[...selected,r.id])}/></td><td><code>{r.itemCode}</code></td><td><b>{r.itemName}</b></td><td><span className={`chip ${systemClass[systemName]||"gray"}`}>{systemName}</span></td><td>{r.specification}</td><td>¥ {r.unitPriceCny}</td><td>{r.quantity} {r.unit}</td><td><b className="blueText">{buy} {r.unit}</b></td><td>¥ {(buy*r.unitPriceCny).toLocaleString()}</td></tr>})}</tbody></table></div><div className="tableFooter"><span>已选择 {selected.length} 项</span><b>当前页成本合计：¥ {sum.toLocaleString()}</b></div></section>
+    <section className="card tableCard bomTable"><div className="bomToolbar"><div className="searchBox">⌕<input placeholder="搜索 BOM 编码、名称或规格…" value={query} onChange={e=>setQuery(e.target.value)}/><kbd>{shown.length} 项</kbd></div><div><button onClick={()=>openMasterData("bomItems")}>编辑 BOM 数据</button><button onClick={()=>window.print()}>打印预览</button></div></div><div className="dataTable"><table><thead><tr><th><input type="checkbox" checked={shown.length>0&&selected.length===shown.length} onChange={toggleAll}/></th><th>物料编码</th><th>物料名称</th><th>流体系统</th><th>规格 / 材质</th><th>单价</th><th>设计量</th><th>采购量</th><th>小计</th></tr></thead><tbody>{loading?<tr><td colSpan={9}>正在读取 D1 BOM…</td></tr>:shown.map((r)=>{const buy=Math.ceil(r.quantity*(1+margin/100));const sourceSystemId=r.sourceId?.includes(":")?r.sourceId.split(":")[0]:"";const canonicalSystem=getFacilitySystem(sourceSystemId)||getFacilitySystem(r.systemId||"");const legacyName=r.systemId?({"sys-utl":"动力公用工程","sys-cr":"洁净室与洁净包","sys-wtr":"纯水与废水","sys-exh":"工艺排风 EXH","sys-fire":"消防与生命安全","sys-ctrl":"机电自控与能源管理"} as Record<string,string>)[r.systemId]:"";const systemName=canonicalSystem?.name||legacyName||"未分配";return <tr key={r.id}><td><input type="checkbox" checked={selected.includes(r.id)} onChange={()=>setSelected(selected.includes(r.id)?selected.filter(x=>x!==r.id):[...selected,r.id])}/></td><td><code>{r.itemCode}</code></td><td><b>{r.itemName}</b></td><td><span className={`chip ${systemClass[systemName]||facilitySystemClass(systemName)}`}>{systemName}</span></td><td>{r.specification}</td><td>¥ {r.unitPriceCny}</td><td>{r.quantity} {r.unit}</td><td><b className="blueText">{buy} {r.unit}</b></td><td>¥ {(buy*r.unitPriceCny).toLocaleString()}</td></tr>})}</tbody></table></div><div className="tableFooter"><span>已选择 {selected.length} 项</span><b>当前页成本合计：¥ {sum.toLocaleString()}</b></div></section>
   </>;
 }
 

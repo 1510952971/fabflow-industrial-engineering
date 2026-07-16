@@ -1,18 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { downloadCsv, openMasterData } from "@/lib/client-actions";
+import { facilityDomains, facilitySystems } from "@/lib/facility-systems";
 
 type Notify=(message:string)=>void;
 
-const systems=[
-  {id:"UTL",name:"动力公用工程",en:"Utilities",icon:"⚡",color:"blue",scope:"CDA · N₂ · PCW · Chilled Water · Electrical · Emergency Power",progress:76,design:92,mc:58,rfc:26,risk:"2 个接口关注",tag:"UTL-01~28",owner:"Utilities Lead",metric:"18.6 MW"},
-  {id:"CR",name:"洁净室与洁净包",en:"Cleanroom Package",icon:"▦",color:"cyan",scope:"ISO 4 / ISO 5 · MAU · FFU · HEPA · 压差 · 洁净验证",progress:68,design:84,mc:44,rfc:12,risk:"封闭条件 9 项",tag:"CR-01~16",owner:"Cleanroom Lead",metric:"42,800 m²"},
-  {id:"WTR",name:"纯水与废水",en:"UPW / Wastewater",icon:"≈",color:"green",scope:"RO · EDI · UV · TOC · UPW Loop · 酸碱废水 · 中和",progress:63,design:88,mc:38,rfc:18,risk:"1 个排放许可",tag:"WTR-01~22",owner:"Water Lead",metric:"1,240 m³/d"},
-  {id:"EXH",name:"工艺排风",en:"Process Exhaust",icon:"⌁",color:"purple",scope:"酸排 · 碱排 · 溶剂排 · 一般排风 · Scrubber · 排放监测",progress:57,design:79,mc:31,rfc:9,risk:"AE-03 设备延期",tag:"EXH-01~19",owner:"Exhaust Lead",metric:"860,000 CMH"},
-  {id:"FIRE",name:"消防与生命安全",en:"Fire & Life Safety",icon:"♢",color:"orange",scope:"消防水 · 喷淋 · VESDA · F&G · 气体探测 · 防火分区",progress:71,design:91,mc:47,rfc:22,risk:"AHJ 书面意见",tag:"FLS-01~14",owner:"EHS / Fire Lead",metric:"14 zones"},
-  {id:"CTRL",name:"机电自控与能源管理",en:"MEP / Controls",icon:"⌘",color:"gray",scope:"BMS · EPMS · SCADA · PLC · I/O · 联锁 · 能源计量",progress:49,design:73,mc:18,rfc:4,risk:"I/O 点表缺口",tag:"CTL-01~34",owner:"Controls Lead",metric:"12,486 I/O"},
-];
+const domainMetrics: Record<string,{design:number;mc:number;rfc:number;risk:string;tag:string;owner:string;metric:string}> = {
+  PROC: {design:89,mc:46,rfc:18,risk:"3 个危险介质接口",tag:"PROC-01~37",owner:"Process Fluids Lead",metric:"3 process packages"},
+  UTL: {design:92,mc:58,rfc:26,risk:"2 个接口关注",tag:"UTL-01~28",owner:"Utilities Lead",metric:"18.6 MW"},
+  CR: {design:84,mc:44,rfc:12,risk:"封闭条件 9 项",tag:"CR-01~16",owner:"Cleanroom Lead",metric:"42,800 m²"},
+  WTR: {design:88,mc:38,rfc:18,risk:"1 个排放许可",tag:"WTR-01~22",owner:"Water Lead",metric:"1,240 m³/d"},
+  EXH: {design:79,mc:31,rfc:9,risk:"AE-03 设备延期",tag:"EXH-01~19",owner:"Exhaust Lead",metric:"860,000 CMH"},
+  FIRE: {design:91,mc:47,rfc:22,risk:"AHJ 书面意见",tag:"FLS-01~14",owner:"EHS / Fire Lead",metric:"14 zones"},
+  CTRL: {design:73,mc:18,rfc:4,risk:"I/O 点表缺口",tag:"CTL-01~34",owner:"Controls Lead",metric:"12,486 I/O"},
+};
+const systems=facilityDomains.map((domain)=>({...domain,...domainMetrics[domain.id]}));
 
 const interfaces=[
   ["IF-UTL-014","CDA 站房压力与 Tool Utility Matrix","动力","工艺 / 自控","确认压力 0.72 MPa 与低压报警值","待确认","高"],
@@ -32,18 +35,20 @@ export function SystemEngineeringPage({notify:parentNotify}:{notify:Notify}){
   const notify:Notify=(message)=>{
     parentNotify(message);
   };
-  const [selected,setSelected]=useState("UTL"); const [tab,setTab]=useState("系统总览"); const [interfaceRows,setInterfaceRows]=useState(interfaces); const [checksState,setChecksState]=useState(checks);
-  useEffect(()=>{
-    const domain=window.sessionStorage.getItem("fabflow:system-domain");
-    if(domain && systems.some(item=>item.id===domain)){setSelected(domain);window.sessionStorage.removeItem("fabflow:system-domain");}
-  },[]);
+  const [selected,setSelected]=useState(() => {
+    if (typeof window !== "undefined") {
+      const domain=window.sessionStorage.getItem("fabflow:system-domain");
+      if (domain && systems.some(item=>item.id===domain)) { window.sessionStorage.removeItem("fabflow:system-domain"); return domain; }
+    }
+    return "UTL";
+  }); const [tab,setTab]=useState("系统总览"); const [interfaceRows,setInterfaceRows]=useState(interfaces); const [checksState,setChecksState]=useState(checks);
   const current=systems.find(x=>x.id===selected)??systems[0];
   const closeInterface=(id:string)=>{setInterfaceRows(interfaceRows.map(x=>x[0]===id?[...x.slice(0,5),"已关闭",x[6]]:x));notify(`${id} 接口问题已关闭`)};
   const toggleCheck=(index:number)=>{setChecksState(checksState.map((x,i)=>i===index?[x[0],x[1],x[2]==="完成"?"进行中":"完成"]:x));notify(`${checksState[index][0]} 状态已更新`)};
   return <>
-    <div className="moduleTop systemTop"><div><span>SYSTEM ENGINEERING DOMAINS</span><h2>厂务系统工程域总览</h2><p>将动力、洁净、水、排风、消防和自控按系统边界、接口、测试包与移交状态统一管理</p></div><div className="moduleActions"><button className="softButton" onClick={()=>downloadCsv("fabflow-system-list.csv",["系统编码","系统名称","英文名称","负责人","总体进度","设计成熟度","MC","RFC","风险"],systems.map(x=>[x.id,x.name,x.en,x.owner,`${x.progress}%`,`${x.design}%`,`${x.mc}%`,`${x.rfc}%`,x.risk]))}>导出系统清单</button><button className="primaryButton" onClick={()=>openMasterData("systems")}>＋ 新建系统边界</button></div></div>
-    <div className="systemDomainKpis"><section className="card"><span>系统域</span><b>6<small>个</small></b><p>34 个子系统 · 128 个系统包</p></section><section className="card"><span>设计成熟度</span><b>82<small>%</small></b><p>2 个域低于 G3 目标</p></section><section className="card"><span>接口事项</span><b>26<small>项</small></b><p className="amberText">9 项影响关键路径</p></section><section className="card"><span>测试包</span><b>173<small>包</small></b><p>通过率 94.2%</p></section><section className="card"><span>移交准备</span><b>38<small>%</small></b><p className="redText">A 类 Punch 6 项</p></section></div>
-    <div className="systemTabs">{["系统总览","接口与联锁","系统准入","测试与移交"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}><i>{x==="系统总览"?"◎":x==="接口与联锁"?"◇":x==="系统准入"?"✓":"⌁"}</i><span>{x}</span><small>{x==="系统总览"?"6 domains":x==="接口与联锁"?"Interface Register":x==="系统准入"?"Readiness Gates":"Test & Handover"}</small></button>)}</div>
+    <div className="moduleTop systemTop"><div><span>SYSTEM ENGINEERING DOMAINS</span><h2>厂务系统工程域总览</h2><p>将工艺流体、动力、洁净、水、排风、消防和自控按统一系统目录、接口、测试包与移交状态管理</p></div><div className="moduleActions"><button className="softButton" onClick={()=>downloadCsv("fabflow-system-list.csv",["系统编码","系统名称","英文名称","负责人","总体进度","设计成熟度","MC","RFC","风险"],systems.map(x=>[x.id,x.name,x.en,x.owner,`${x.progress}%`,`${x.design}%`,`${x.mc}%`,`${x.rfc}%`,x.risk]))}>导出系统清单</button><button className="primaryButton" onClick={()=>openMasterData("systems")}>＋ 新建系统边界</button></div></div>
+    <div className="systemDomainKpis"><section className="card"><span>系统域</span><b>{systems.length}<small>个</small></b><p>{facilitySystems.length} 个工程系统 · 128 个系统包</p></section><section className="card"><span>设计成熟度</span><b>82<small>%</small></b><p>2 个域低于 G3 目标</p></section><section className="card"><span>接口事项</span><b>26<small>项</small></b><p className="amberText">9 项影响关键路径</p></section><section className="card"><span>测试包</span><b>173<small>包</small></b><p>通过率 94.2%</p></section><section className="card"><span>移交准备</span><b>38<small>%</small></b><p className="redText">A 类 Punch 6 项</p></section></div>
+    <div className="systemTabs">{["系统总览","接口与联锁","系统准入","测试与移交"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}><i>{x==="系统总览"?"◎":x==="接口与联锁"?"◇":x==="系统准入"?"✓":"⌁"}</i><span>{x}</span><small>{x==="系统总览"?systems.length+" domains":x==="接口与联锁"?"Interface Register":x==="系统准入"?"Readiness Gates":"Test & Handover"}</small></button>)}</div>
     {tab==="系统总览"&&<OverviewView systems={systems} selected={selected} setSelected={setSelected} current={current} notify={notify}/>} 
     {tab==="接口与联锁"&&<InterfaceView rows={interfaceRows} close={closeInterface} notify={notify}/>} 
     {tab==="系统准入"&&<ReadinessView checks={checksState} toggle={toggleCheck} current={current} notify={notify}/>} 

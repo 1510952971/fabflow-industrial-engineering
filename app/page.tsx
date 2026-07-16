@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ModuleRouter } from "./modules";
 import { copyText, createWorkflowAction, openMasterData } from "@/lib/client-actions";
+import { facilityDomains, facilitySystems, getFacilitySystem, quickProjectSystems } from "@/lib/facility-systems";
+// 统一目录保留历史域别名映射：动力公用工程
 
 const navGroups = [
   {id:"project", icon:"⌂", title:"项目工作流", items:[["⌂", "项目工作台"], ["◎", "全球建设管理"], ["⚙", "工程执行中心"], ["◷", "计划与供应链"]]},
@@ -13,19 +15,9 @@ const navGroups = [
 ];
 
 const materials = [
-  {name:"VCR 面密封接头", spec:'1/4” · 316L EP', system:"电子特气", color:"blue", pressure:72, price:186},
-  {name:"BA 不锈钢管", spec:'1/2” × 1.24 mm', system:"大宗气体", color:"green", pressure:84, price:92},
-  {name:"PFA 扩口接头", spec:'3/8” · HP PFA', system:"湿化学品", color:"purple", pressure:42, price:128},
-];
-
-// 首页展示完整厂务系统域，避免项目工作台只显示流体标签造成系统缺失的误解。
-const systemDomains = [
-  {id:"UTL", name:"动力公用工程", en:"Utilities", scope:"CDA · N₂ · PCW · 冷冻水 · 电力", progress:76, color:"blue", icon:"⚡"},
-  {id:"CR", name:"洁净室与洁净包", en:"Cleanroom Package", scope:"ISO 4/5 · MAU · FFU · HEPA · 压差", progress:68, color:"cyan", icon:"▦"},
-  {id:"WTR", name:"纯水与废水", en:"UPW / Wastewater", scope:"RO · EDI · UPW Loop · 酸碱废水 · 中和", progress:63, color:"green", icon:"≈"},
-  {id:"EXH", name:"工艺排风", en:"Process Exhaust", scope:"酸排 · 碱排 · 溶剂排 · Scrubber · 监测", progress:57, color:"purple", icon:"⌁"},
-  {id:"FIRE", name:"消防与生命安全", en:"Fire & Life Safety", scope:"消防水 · 喷淋 · VESDA · F&G · 防火分区", progress:71, color:"orange", icon:"♢"},
-  {id:"CTRL", name:"机电自控与能源管理", en:"MEP / Controls", scope:"BMS · EPMS · SCADA · PLC · I/O · 联锁", progress:49, color:"gray", icon:"⌘"},
+  {name:"VCR 面密封接头", spec:'1/4” · 316L EP', system:"电子特气 VMB", systemId:"sys-sgas", color:"blue", pressure:72, price:186},
+  {name:"BA 不锈钢管", spec:'1/2” × 1.24 mm', system:"大宗气体 BSGS", systemId:"sys-bsgs", color:"green", pressure:84, price:92},
+  {name:"PFA 扩口接头", spec:'3/8” · HP PFA', system:"湿化学品 CDS", systemId:"sys-cds", color:"purple", pressure:42, price:128},
 ];
 
 const workflowSteps = [
@@ -40,6 +32,7 @@ export default function Home() {
   const [dark, setDark] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  const [drawerTool, setDrawerTool] = useState<"convert"|"compatibility"|"torque">("convert");
   const [pressure, setPressure] = useState(0.68);
   const [thickness, setThickness] = useState(2);
   const [points, setPoints] = useState(128);
@@ -95,13 +88,13 @@ export default function Home() {
       <div className="content">
         {active === "项目工作台" ? <>
         <section className="projectHero card">
-          <div className="heroCopy"><div className="eyebrow"><i/> DESIGN IN PROGRESS</div><h2>Fab 2A 厂务系统深化设计</h2><p>南京 · 洁净等级 ISO 4 · 最后更新于 10 分钟前</p><div className="chips"><span className="chip blue">电子特气 VMB</span><span className="chip green">大宗 BSGS</span><span className="chip purple">湿化学品 CDS</span><span className="chip cyan">超纯水 UPW</span><button onClick={()=>activate("工程主数据录入","delivery")}>＋ 添加系统</button></div></div>
+          <div className="heroCopy"><div className="eyebrow"><i/> DESIGN IN PROGRESS</div><h2>Fab 2A 厂务系统深化设计</h2><p>南京 · 洁净等级 ISO 4 · 最后更新于 10 分钟前</p><div className="chips">{quickProjectSystems.map((system)=><span className={"chip " + system.color} key={system.id}>{system.name}</span>)}<button onClick={()=>activate("系统工程域","systems")}>查看全部 {facilitySystems.length} 个系统</button><button onClick={()=>activate("工程主数据录入","delivery")}>＋ 添加系统</button></div></div>
           <div className="heroMetric"><span>设计完成度</span><b>68<small>%</small></b><div><i style={{width:"68%"}}/></div><p>12 个模块中已完成 8 个</p></div>
         </section>
 
         <section className="systemOverview card">
-          <div className="systemOverviewHead"><div><span>FAB FACILITY SYSTEMS</span><h2>厂务系统域总览</h2><p>6 个工程域 · 点击进入系统边界、接口、测试包与移交管理</p></div><button onClick={()=>setActive("系统工程域")}>进入系统工程域 <b>→</b></button></div>
-          <div className="systemDomainGrid">{systemDomains.map(domain=><button key={domain.id} className="systemDomain" onClick={()=>activate("系统工程域","systems",domain.id)}><div className={`systemDomainIcon ${domain.color}`}>{domain.icon}</div><div className="systemDomainCopy"><div><b>{domain.name}</b><span>{domain.id}</span></div><small>{domain.en} · {domain.scope}</small><div className="systemDomainProgress"><i style={{width:`${domain.progress}%`}}/><em>{domain.progress}%</em></div></div><span className="systemDomainArrow">↗</span></button>)}</div>
+          <div className="systemOverviewHead"><div><span>FAB FACILITY SYSTEMS</span><h2>厂务系统域总览</h2><p>{facilityDomains.length} 个工程域 · {facilitySystems.length} 个工程系统 · 统一进入边界、接口、测试包与移交管理</p></div><button onClick={()=>setActive("系统工程域")}>进入系统工程域 <b>→</b></button></div>
+          <div className="systemDomainGrid">{facilityDomains.map(domain=><button key={domain.id} className="systemDomain" onClick={()=>activate("系统工程域","systems",domain.id)}><div className={`systemDomainIcon ${domain.color}`}>{domain.icon}</div><div className="systemDomainCopy"><div><b>{domain.name}</b><span>{domain.id}</span></div><small>{domain.en} · {domain.scope}</small><div className="systemDomainProgress"><i style={{width:`${domain.progress}%`}}/><em>{domain.progress}%</em></div></div><span className="systemDomainArrow">↗</span></button>)}</div>
         </section>
 
         <section className="workflowStrip card"><div className="workflowHead"><div><span>PROJECT CONTROL PATH</span><h2>当前项目工作流</h2></div><p>按顺序推进，减少跨模块查找</p></div><div className="workflowSteps">{workflowSteps.map((step,index)=><button key={step.no} className={index===0?"current":""} onClick={()=>activate(step.target,step.group)}><i>{step.no}</i><span><b>{step.title}</b><small>{step.hint}</small></span><em>{step.state}</em>{index<workflowSteps.length-1&&<strong>→</strong>}</button>)}</div></section>
@@ -110,7 +103,7 @@ export default function Home() {
 
         <div className="dashboardGrid">
           <section className="card parameters">
-            <div className="cardHead"><div className="cardIcon bluebg">◇</div><div><h3>工况参数</h3><p>电子特气 · VMB 柜体装配</p></div><button onClick={()=>activate("介质参数录入","design")}>编辑</button></div>
+            <div className="cardHead"><div className="cardIcon bluebg">◇</div><div><h3>工况参数</h3><p>电子特气 VMB · 柜体装配</p></div><button onClick={()=>activate("介质参数录入","design")}>编辑</button></div>
             <div className="fields">
               <label><span>设计压力 <b>MPa</b></span><input type="number" step="0.01" value={pressure} onChange={e=>setPressure(+e.target.value)}/><small>范围 0.1 — 1.0 MPa</small></label>
               <label><span>工作温度 <b>°C</b></span><input type="number" defaultValue={23}/><small>常温工况</small></label>
@@ -130,7 +123,7 @@ export default function Home() {
           <section className="card selector">
             <div className="cardHead"><div className="cardIcon purplebg">⑂</div><div><h3>管路与设备选型</h3><p>基于当前工况智能匹配</p></div><button onClick={()=>activate("管路接头选型","design")}>查看全部 →</button></div>
             <div className="filterChips">{[["全部","全部 3"],["316L","316L"],["VCR","VCR 接头"],["≤1MPa","≤ 1.0 MPa"]].map(([value,label])=><button key={value} className={materialFilter===value?"selected":""} onClick={()=>setMaterialFilter(value)}>{label}</button>)}</div>
-            <div className="materialList">{shownMaterials.map(m=><div className="material" key={m.name}><div className={`materialIcon ${m.color}`}>⌁</div><div className="materialInfo"><div><b>{m.name}</b><span className={`chip ${m.color}`}>{m.system}</span></div><p>{m.spec} · 耐压 {m.pressure/10} MPa</p><div className="mini"><i style={{width:m.pressure+"%"}}/></div></div><div className="price"><b>¥{m.price}</b><button disabled={added.includes(m.name)} className={added.includes(m.name)?"done":""} onClick={async()=>{const ok=await createBomItem({itemCode:m.name.startsWith("VCR")?"VCR-4-EP":m.name.startsWith("BA")?"TUBE-8-BA":"PFA-6-F",itemName:m.name,specification:m.spec,quantity:1,unit:"件",unitPriceCny:m.price,sourceType:"catalog",sourceId:m.name},`${m.name} 已写入 D1 项目 BOM`);if(ok)setAdded(x=>x.includes(m.name)?x:[...x,m.name])}}>{added.includes(m.name)?"✓":"＋"}</button></div></div>)}</div>
+            <div className="materialList">{shownMaterials.map(m=><div className="material" key={m.name}><div className={`materialIcon ${m.color}`}>⌁</div><div className="materialInfo"><div><b>{m.name}</b><span className={`chip ${m.color}`}>{m.system}</span></div><p>{m.spec} · 耐压 {m.pressure/10} MPa</p><div className="mini"><i style={{width:m.pressure+"%"}}/></div></div><div className="price"><b>¥{m.price}</b><button disabled={added.includes(m.name)} className={added.includes(m.name)?"done":""} onClick={async()=>{const ok=await createBomItem({itemCode:m.name.startsWith("VCR")?"VCR-4-EP":m.name.startsWith("BA")?"TUBE-8-BA":"PFA-6-F",systemId:getFacilitySystem(m.systemId)?.dbSystemId,itemName:m.name,specification:m.spec,quantity:1,unit:"件",unitPriceCny:m.price,sourceType:"catalog",sourceId:m.systemId+":"+m.name},`${m.name} 已写入 D1 项目 BOM`);if(ok)setAdded(x=>x.includes(m.name)?x:[...x,m.name])}}>{added.includes(m.name)?"✓":"＋"}</button></div></div>)}</div>
           </section>
 
           <section className="card compliance">
@@ -154,7 +147,7 @@ export default function Home() {
     </section>
 
     <button className="drawerTab" onClick={()=>setDrawer(true)}>工具箱 <span>⇄</span></button>
-    {drawer&&<><div className="overlay" onClick={()=>setDrawer(false)}/><aside className="drawer"><div className="drawerHead"><div><span>QUICK TOOLS</span><h2>工程辅助工具箱</h2></div><button onClick={()=>setDrawer(false)}>×</button></div><div className="toolTabs"><button className="active" onClick={()=>setDrawer(true)}>单位换算</button><button onClick={()=>openMasterData("materialCompatibility")}>材质禁忌</button><button onClick={()=>void copyText("M4 2.4 N·m\nM5 4.8 N·m\nM6 8.3 N·m").then(()=>notify("扭矩标准已复制"))}>扭矩速查</button></div><div className="converter card"><label>压力 · MPa<input value={pressure} onChange={e=>setPressure(+e.target.value)}/></label><button onClick={()=>void copyText(`${(pressure*145.038).toFixed(2)} psi`).then(()=>notify("psi 数值已复制"))}>复制 psi</button><label>压力 · psi<input readOnly value={(pressure*145.038).toFixed(2)}/></label><p>常用值 <button onClick={()=>setPressure(6.895)}>1000 psi</button><button onClick={()=>setPressure(0.7)}>0.7 MPa</button></p></div><div className="toolCard"><span>CURRENT BOM</span><h3>当前项目物料</h3><div><b>{1284+added.length}</b><small>总物料数量</small></div><button onClick={()=>void copyText(`FAB2A-BOM ${1284+added.length} PCS\nM5×8 四组合螺栓\n316L EP / BA 按系统规格执行`).then(()=>notify("CAD 标注文本已复制")).catch(error=>notify(error instanceof Error?error.message:"复制失败"))}>复制 CAD 标注文本</button></div></aside></>}
+    {drawer&&<><div className="overlay" onClick={()=>setDrawer(false)}/><aside className="drawer"><div className="drawerHead"><div><span>QUICK TOOLS</span><h2>工程辅助工具箱</h2><p>三个工具统一在当前抽屉内切换</p></div><button onClick={()=>setDrawer(false)}>×</button></div><div className="toolTabs"><button className={drawerTool==="convert"?"active":""} onClick={()=>setDrawerTool("convert")}>单位换算</button><button className={drawerTool==="compatibility"?"active":""} onClick={()=>setDrawerTool("compatibility")}>材质禁忌</button><button className={drawerTool==="torque"?"active":""} onClick={()=>setDrawerTool("torque")}>扭矩速查</button></div>{drawerTool==="convert"&&<div className="drawerToolPanel converter card"><div className="drawerToolTitle"><span>PRESSURE CONVERTER</span><b>压力双向换算</b></div><label>压力 · MPa<input type="number" step="0.001" value={pressure} onChange={e=>setPressure(+e.target.value)}/></label><button onClick={()=>void copyText((pressure*145.038).toFixed(2)+" psi").then(()=>notify("psi 数值已复制"))}>复制 psi</button><label>压力 · psi<input readOnly value={(pressure*145.038).toFixed(2)}/></label><p>常用值 <button onClick={()=>setPressure(6.895)}>1000 psi</button><button onClick={()=>setPressure(0.7)}>0.7 MPa</button></p></div>}{drawerTool==="compatibility"&&<div className="drawerToolPanel card drawerReference"><div className="drawerToolTitle"><span>MATERIAL COMPATIBILITY</span><b>介质材质禁忌速查</b></div>{[["Cl₂ 氯气","禁用 EPDM","PCTFE / FFKM"],["HF 氢氟酸","禁用玻璃 / 金属","HP PFA / PTFE"],["UPW 超纯水","禁用普通 PVC","HP PVDF / 316L EP"],["O₃ 臭氧","禁用 NBR","316L EP / FFKM"]].map(item=><div className="drawerReferenceRow" key={item[0]}><b>{item[0]}</b><span>{item[1]}</span><em>{item[2]}</em></div>)}<button className="drawerFullAction" onClick={()=>openMasterData("materialCompatibility")}>打开完整兼容矩阵 →</button></div>}{drawerTool==="torque"&&<div className="drawerToolPanel card drawerReference"><div className="drawerToolTitle"><span>FASTENER TORQUE</span><b>304 不锈钢标准扭矩</b></div>{[["M4","2.4 N·m","± 0.2"],["M5","4.8 N·m","± 0.4"],["M6","8.3 N·m","± 0.7"],["M8","20 N·m","± 1.5"]].map(item=><div className="drawerReferenceRow torque" key={item[0]}><b>{item[0]}</b><span>{item[1]}</span><em>{item[2]}</em></div>)}<button className="drawerFullAction" onClick={()=>void copyText("M4 2.4 N·m\nM5 4.8 N·m\nM6 8.3 N·m\nM8 20 N·m").then(()=>notify("扭矩标准已复制"))}>复制当前扭矩表 →</button></div>}<div className="toolCard"><span>CURRENT BOM</span><h3>当前项目物料</h3><div><b>{1284+added.length}</b><small>总物料数量</small></div><button onClick={()=>void copyText("FAB2A-BOM "+(1284+added.length)+" PCS\nM5×8 四组合螺栓\n316L EP / BA 按系统规格执行").then(()=>notify("CAD 标注文本已复制")).catch(error=>notify(error instanceof Error?error.message:"复制失败"))}>复制 CAD 标注文本</button></div></aside></>}
     {toast&&<div className="toast">✓ {toast}</div>}
   </main>;
 }

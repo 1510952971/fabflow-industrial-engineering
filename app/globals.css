@@ -77,3 +77,43 @@
 @media(max-width:1250px){.mediaFields{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:620px){.mediaFields{grid-template-columns:1fr}.mediaFormActions{justify-content:flex-start;flex-wrap:wrap}}
 .catalogHeader button.active{border-color:#165dff55;background:#165dff0b;color:#165dff}.catalogGrid.compact{grid-template-columns:1fr}.catalogGrid.compact .catalogCard{display:grid;grid-template-columns:180px 1fr}.catalogGrid.compact .catalogVisual{min-height:145px}.catalogGrid.compact .catalogSpecs{grid-template-columns:repeat(4,1fr)}
+
+/* Unified system-aware pipe and facility-equipment selection */
+.selectionContext{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;padding:0;margin-bottom:12px;overflow:hidden}
+.selectionContext>div{padding:13px 16px;background:var(--panel)}
+.selectionContext span,.selectionContext small,.equipmentSummary span,.equipmentSummary small{display:block;color:var(--muted);font-size:7px}
+.selectionContext b{display:block;font-size:11px;margin:4px 0}
+.selectionFilters{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:9px;margin-top:10px}
+.selectionFilters label{display:flex;flex-direction:column;gap:5px}
+.selectionFilters label>span{font-size:7px;color:var(--muted)}
+.selectionFilters select{width:100%;height:35px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);padding:0 9px;font-size:8px;outline:0}
+.selectionFilters select:focus{border-color:#165dff77;box-shadow:0 0 0 3px #165dff0e}
+.pipeCatalogCard .catalogTitle .chip{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.equipmentSummary{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;padding:0;margin-bottom:12px;overflow:hidden}
+.equipmentSummary>div{padding:14px 16px;background:var(--panel)}
+.equipmentSummary b{display:block;font-size:16px;margin:5px 0}.equipmentSummary b em{font-size:8px;font-style:normal;color:var(--muted);margin-left:3px}
+.equipmentLibraryGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px}
+.equipmentLibraryCard{padding:16px;transition:.16s}.equipmentLibraryCard:hover,.equipmentLibraryCard.selected{border-color:#165dff55;box-shadow:0 12px 28px #165dff10;transform:translateY(-1px)}
+.equipmentLibraryCard>header{display:grid;grid-template-columns:40px 1fr auto;gap:10px;align-items:start}
+.equipmentGlyph{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:#165dff12;color:#165dff;font-size:18px}
+.equipmentGlyph.green{background:#36d39914;color:#25a66e}.equipmentGlyph.cyan{background:#00b8d914;color:#009db8}.equipmentGlyph.purple{background:#9b7cf414;color:#7858dd}.equipmentGlyph.orange{background:#ff7d0014;color:#d96a00}.equipmentGlyph.gray{background:#71809618;color:#657184}
+.equipmentLibraryCard header small{display:block;font-size:6px;color:var(--muted)}.equipmentLibraryCard h3{font-size:12px;margin:4px 0 7px}
+.equipmentLibraryCard header>button{border:1px solid #165dff55;background:#165dff09;color:#165dff;border-radius:8px;height:30px;padding:0 9px;font-size:7px}
+.equipmentDuty{margin:14px 0;padding:12px;border-radius:10px;background:linear-gradient(120deg,#165dff0c,var(--bg));display:grid;grid-template-columns:1fr auto;gap:4px}
+.equipmentDuty span,.equipmentDuty small{font-size:7px;color:var(--muted)}.equipmentDuty b{grid-row:1/3;grid-column:2;font-size:15px;color:#165dff;align-self:center}.equipmentDuty small{grid-column:1}
+.equipmentSpecs{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}.equipmentSpecs p{display:flex;justify-content:space-between;gap:7px;border-top:1px solid var(--line);padding:9px 0;margin:0;font-size:7px}.equipmentSpecs span{color:var(--muted)}.equipmentSpecs b{text-align:right}
+.equipmentLibraryCard>footer{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:end;border-top:1px solid var(--line);padding-top:12px;margin-top:4px}
+.equipmentInterface{font-size:6px;border-radius:7px;padding:5px 7px;background:#f59e0b12;color:#d97706}.equipmentInterface.passed{background:#27ae6012;color:#27ae60}.equipmentInterface.attention{background:#165dff12;color:#165dff}
+.equipmentLibraryCard footer>div{text-align:right}.equipmentLibraryCard footer small{display:block;font-size:6px;color:var(--muted)}.equipmentLibraryCard footer b{font-size:10px}
+.equipmentLibraryCard footer>button{border:0;background:transparent;color:#165dff;font-size:7px;padding:0}
+
+/* One consistent right-side toolbox shell */
+.drawerHead p{font-size:7px;color:var(--muted);margin:4px 0 0}
+.drawerToolPanel{margin-top:12px;min-height:255px}
+.drawerToolTitle{display:flex;flex-direction:column;margin-bottom:11px}.drawerToolTitle span{font-size:6px;letter-spacing:1px;color:#165dff}.drawerToolTitle b{font-size:11px;margin-top:4px}
+.drawerReference{padding:14px}.drawerReferenceRow{display:grid;grid-template-columns:1fr 1fr;gap:4px;border-top:1px solid var(--line);padding:10px 1px}
+.drawerReferenceRow b{font-size:8px}.drawerReferenceRow span{font-size:7px;color:#e53e3e;text-align:right}.drawerReferenceRow em{grid-column:1/3;font-size:7px;color:#27ae60;font-style:normal}
+.drawerReferenceRow.torque{grid-template-columns:45px 1fr 55px;align-items:center}.drawerReferenceRow.torque em{grid-column:auto;text-align:right;color:var(--muted)}.drawerReferenceRow.torque span{color:var(--text);text-align:left}
+.drawerFullAction{width:100%;height:34px;margin-top:10px;border:1px solid #165dff55;background:#165dff08;color:#165dff;border-radius:8px;font-size:7px}
+@media(max-width:1000px){.equipmentSummary{grid-template-columns:repeat(2,1fr)}.equipmentLibraryGrid{grid-template-columns:1fr}}
+@media(max-width:620px){.selectionContext,.selectionFilters,.equipmentSummary{grid-template-columns:1fr}.equipmentLibraryCard>header{grid-template-columns:38px 1fr}.equipmentLibraryCard header>button{grid-column:1/3}.equipmentLibraryCard>footer{grid-template-columns:1fr 1fr}.equipmentLibraryCard footer>button{grid-column:1/3;text-align:left}}

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { downloadCsv, downloadText, openMasterData, parseCsv } from "@/lib/client-actions";
+import { facilityDomains, facilitySystems } from "@/lib/facility-systems";
 
 type Notify = (message: string) => void;
 type MediaConditionRow = {
@@ -24,18 +25,9 @@ type MediaConditionRow = {
   doubleContainment: boolean;
 };
 
-const systems = [
-  { id: "sys-utl", name: "动力公用工程", code: "UTL" },
-  { id: "sys-cr", name: "洁净室与洁净包", code: "CR" },
-  { id: "sys-wtr", name: "纯水与废水", code: "WTR" },
-  { id: "sys-exh", name: "工艺排风", code: "EXH" },
-  { id: "sys-fire", name: "消防与生命安全", code: "FIRE" },
-  { id: "sys-ctrl", name: "机电自控与能源管理", code: "CTRL" },
-];
-
 const initialRows: MediaConditionRow[] = [
-  { id: 1, systemId: "sys-utl", systemName: "动力公用工程", tagNo: "VMB-SIH4-001", medium: "SiH4", phase: "气体", purity: "6N", operatingPressure: .72, designPressure: 1, operatingTemperature: 35, designTemperature: 60, flow: 120, flowUnit: "SLM", connection: "VCR", nominalSize: "1/4”", cleanliness: "UHP", doubleContainment: false },
-  { id: 2, systemId: "sys-wtr", systemName: "纯水与废水", tagNo: "UPW-L2-201", medium: "UPW", phase: "液体", purity: "18.2 MΩ·cm", operatingPressure: .55, designPressure: 1, operatingTemperature: 25, designTemperature: 85, flow: 32, flowUnit: "m³/h", connection: "自动焊", nominalSize: "DN80", cleanliness: "UPW", doubleContainment: false },
+  { id: 1, systemId: "sys-sgas", systemName: "电子特气 VMB", tagNo: "VMB-SIH4-001", medium: "SiH4", phase: "气体", purity: "6N", operatingPressure: .72, designPressure: 1, operatingTemperature: 35, designTemperature: 60, flow: 120, flowUnit: "SLM", connection: "VCR", nominalSize: "1/4”", cleanliness: "UHP", doubleContainment: false },
+  { id: 2, systemId: "sys-upw", systemName: "超纯水 UPW", tagNo: "UPW-L2-201", medium: "UPW", phase: "液体", purity: "18.2 MΩ·cm", operatingPressure: .55, designPressure: 1, operatingTemperature: 25, designTemperature: 85, flow: 32, flowUnit: "m³/h", connection: "自动焊", nominalSize: "DN80", cleanliness: "UPW", doubleContainment: false },
   { id: 3, systemId: "sys-exh", systemName: "工艺排风", tagNo: "EXH-ACID-031", medium: "酸性排风", phase: "含尘气体", purity: "含 HF / HCl 痕量", operatingPressure: -.002, designPressure: .01, operatingTemperature: 28, designTemperature: 60, flow: 18000, flowUnit: "m³/h", connection: "法兰", nominalSize: "DN900", cleanliness: "Industrial", doubleContainment: true },
 ];
 
@@ -45,7 +37,7 @@ function PageTop({ actions }: { actions: React.ReactNode }) {
 
 export function MediaConditionsPage({ notify }: { notify: Notify }) {
   const importFile = useRef<HTMLInputElement>(null);
-  const [systemId, setSystemId] = useState("sys-utl");
+  const [systemId, setSystemId] = useState("sys-sgas");
   const [tagNo, setTagNo] = useState("VMB-SIH4-002");
   const [medium, setMedium] = useState("SiH4");
   const [phase, setPhase] = useState("气体");
@@ -60,8 +52,16 @@ export function MediaConditionsPage({ notify }: { notify: Notify }) {
   const [nominalSize, setNominalSize] = useState("1/4”");
   const [cleanliness, setCleanliness] = useState("UHP");
   const [doubleContainment, setDoubleContainment] = useState(false);
-  const [rows, setRows] = useState<MediaConditionRow[]>(initialRows);
-  const activeSystem = systems.find((item) => item.id === systemId) || systems[0];
+  const [rows, setRows] = useState<MediaConditionRow[]>(() => {
+    if (typeof window === "undefined") return initialRows;
+    try {
+      const saved = window.localStorage.getItem("fabflow:media-condition-drafts");
+      const parsed = saved ? JSON.parse(saved) as MediaConditionRow[] : null;
+      return Array.isArray(parsed) && parsed.length ? parsed : initialRows;
+    } catch { return initialRows; }
+  });
+  const activeSystem = facilitySystems.find((item) => item.id === systemId) || facilitySystems[0];
+  const activeDomain = facilityDomains.find((domain) => domain.id === activeSystem.domainId);
   const normalizedMedium = medium.trim().toUpperCase();
   const hazardous = ["SIH4", "CL2", "H2", "NH3", "HF", "HCL", "PH3", "B2H6"].some((code) => normalizedMedium.includes(code));
   const pressureInvalid = designPressure < operatingPressure;
@@ -79,16 +79,6 @@ export function MediaConditionsPage({ notify }: { notify: Notify }) {
           : normalizedMedium.includes("SIH4")
             ? "316L EP + 金属垫片 VCR"
             : "进入介质—材料兼容矩阵复核";
-
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem("fabflow:media-condition-drafts");
-      if (saved) {
-        const parsed = JSON.parse(saved) as MediaConditionRow[];
-        if (Array.isArray(parsed) && parsed.length) setRows(parsed);
-      }
-    } catch {}
-  }, []);
 
   useEffect(() => {
     try { window.localStorage.setItem("fabflow:media-condition-drafts", JSON.stringify(rows)); } catch {}
@@ -131,10 +121,10 @@ export function MediaConditionsPage({ notify }: { notify: Notify }) {
           entity: "tags",
           data: {
             projectId: "proj-fab2a",
-            systemId,
+            systemId: activeSystem.dbSystemId,
             tagNo: tagNo.trim(),
             entityType: "line",
-            description: phase + " · " + purity + " · " + flow + " " + flowUnit + " · " + connection + " " + nominalSize + (doubleContainment ? " · 双套管" : ""),
+            description: activeSystem.code + " · " + activeSystem.name + " · " + phase + " · " + purity + " · " + flow + " " + flowUnit + " · " + connection + " " + nominalSize + (doubleContainment ? " · 双套管" : ""),
             designPressureMpa: designPressure,
             designTemperatureC: designTemperature,
             medium: medium.trim(),
@@ -167,8 +157,8 @@ export function MediaConditionsPage({ notify }: { notify: Notify }) {
       const header = matrix[0];
       const at = (...names: string[]) => header.findIndex((value) => names.includes(value));
       const imported = matrix.slice(1).map((cells, index) => {
-        const systemName = cells[at("系统", "系统名称")] || "动力公用工程";
-        const system = systems.find((item) => item.name === systemName || item.code === systemName) || systems[0];
+        const systemName = cells[at("系统", "系统名称")] || "电子特气 VMB";
+        const system = facilitySystems.find((item) => item.name === systemName || item.shortName === systemName || item.code === systemName) || facilitySystems[0];
         return {
           id: Date.now() + index,
           systemId: system.id,
@@ -232,7 +222,7 @@ export function MediaConditionsPage({ notify }: { notify: Notify }) {
       <section className="card moduleCard span8">
         <div className="moduleCardTitle"><div><i className="titleIcon bluebg">◇</i><span><b>工况设计输入</b><small>自定义输入，不限于预置介质与系统</small></span></div><em>01 / DESIGN BASIS</em></div>
         <div className="floatingFields mediaFields">
-          <label><span>所属系统</span><select value={systemId} onChange={(event) => setSystemId(event.target.value)}>{systems.map((item) => <option value={item.id} key={item.id}>{item.code} · {item.name}</option>)}</select></label>
+          <label><span>所属工程系统</span><select value={systemId} onChange={(event) => setSystemId(event.target.value)}>{facilityDomains.map((domain) => <optgroup label={domain.id + " · " + domain.name} key={domain.id}>{facilitySystems.filter((item) => item.domainId === domain.id).map((item) => <option value={item.id} key={item.id}>{item.code} · {item.name}</option>)}</optgroup>)}</select></label>
           <label><span>Tag / 管线编号</span><input value={tagNo} onChange={(event) => setTagNo(event.target.value)}/></label>
           <label><span>介质名称</span><input list="fabflow-medium-options" value={medium} onChange={(event) => setMedium(event.target.value)}/><datalist id="fabflow-medium-options"><option value="SiH4"/><option value="Cl2"/><option value="N2"/><option value="CDA"/><option value="UPW"/><option value="HF"/><option value="HCl"/><option value="酸性排风"/><option value="工艺冷却水"/></datalist></label>
           <label><span>相态</span><select value={phase} onChange={(event) => setPhase(event.target.value)}><option>气体</option><option>液体</option><option>气液两相</option><option>含尘气体</option><option>废液</option></select></label>
@@ -253,7 +243,7 @@ export function MediaConditionsPage({ notify }: { notify: Notify }) {
       <aside className={"card moduleCard span4 mediaAssessment " + conditionStatus}>
         <div className="moduleCardTitle"><div><i className="titleIcon greenbg">✓</i><span><b>输入完整性与选型边界</b><small>随工况数据实时校核</small></span></div></div>
         <div className="assessmentStatus"><i>{conditionStatus === "fatal" ? "×" : conditionStatus === "warning" ? "!" : "✓"}</i><span><b>{conditionStatus === "fatal" ? "设计边界不成立" : conditionStatus === "warning" ? "危险介质，需专项校核" : "工况输入可用于选型"}</b><small>{conditionStatus === "fatal" ? "设计值不得低于操作值" : hazardous ? "需要材料兼容、泄漏与联锁复核" : "基础参数校核通过"}</small></span></div>
-        <div className="conditionKpis"><div><span>压力设计裕量</span><b className={margin < 10 ? "redText" : "blueText"}>{margin}%</b></div><div><span>温度裕量</span><b>{designTemperature - operatingTemperature}<small>°C</small></b></div><div><span>系统编码</span><b>{activeSystem.code}</b></div><div><span>接口边界</span><b>{connection}</b></div></div>
+        <div className="conditionKpis"><div><span>压力设计裕量</span><b className={margin < 10 ? "redText" : "blueText"}>{margin}%</b></div><div><span>温度裕量</span><b>{designTemperature - operatingTemperature}<small>°C</small></b></div><div><span>工程域 / 系统</span><b>{activeDomain?.id} / {activeSystem.code}</b></div><div><span>接口边界</span><b>{connection}</b></div></div>
         <div className="materialAdvice"><span>推荐材料路线</span><b>{materialAdvice}</b><button onClick={() => openMasterData("materialCompatibility", medium)}>打开兼容矩阵 →</button></div>
       </aside>
       <section className="card moduleCard span12 tableCard mediaConditionTable">
