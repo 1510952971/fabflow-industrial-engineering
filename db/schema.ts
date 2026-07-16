@@ -110,6 +110,30 @@ export const purchaseOrders = sqliteTable("purchase_orders", {
   index("purchase_orders_project_idx").on(table.projectId),
 ]);
 
+/** Project BOM lines produced by selection, calculation or manual engineering entry. */
+export const bomItems = sqliteTable("bom_items", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  systemId: text("system_id").references(() => systems.id),
+  materialId: text("material_id").references(() => materials.id),
+  itemCode: text("item_code").notNull(),
+  itemName: text("item_name").notNull(),
+  specification: text("specification").notNull().default(""),
+  quantity: real("quantity").notNull().default(0),
+  unit: text("unit").notNull().default("件"),
+  unitPriceCny: real("unit_price_cny").notNull().default(0),
+  wastePct: real("waste_pct").notNull().default(5),
+  sourceType: text("source_type").notNull().default("manual"),
+  sourceId: text("source_id"),
+  status: text("status").notNull().default("draft"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  index("bom_items_project_idx").on(table.projectId),
+  index("bom_items_system_idx").on(table.systemId),
+  index("bom_items_material_idx").on(table.materialId),
+]);
+
 export const testPacks = sqliteTable("test_packs", {
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projects.id),

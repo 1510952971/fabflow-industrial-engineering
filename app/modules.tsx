@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { GlobalFabPage } from "./global-fab";
 import { EngineeringExecutionPage } from "./engineering-execution";
 import { ProgramControlsPage } from "./program-controls";
 import { SystemEngineeringPage } from "./system-engineering";
 import { DataFoundationPage } from "./data-foundation";
 import { EquipmentFactoryPage } from "./equipment-factory";
+import { MasterDataPage } from "./master-data";
 
 type Notify = (message: string) => void;
 type PointRow = { id: number; area: string; structure: string; thickness: number; points: number };
@@ -31,6 +32,7 @@ export function ModuleRouter({ active, notify }:{ active:string; notify:Notify }
   if (active === "系统工程域") return <SystemEngineeringPage notify={notify}/>;
   if (active === "数据底座与协同") return <DataFoundationPage notify={notify}/>;
   if (active === "设备工厂协同") return <EquipmentFactoryPage notify={notify}/>;
+  if (active === "工程主数据录入") return <MasterDataPage notify={notify}/>;
   if (active === "介质参数录入" || active === "结构紧固件计算") return <CalculationPage notify={notify}/>;
   if (active === "管路接头选型" || active === "厂务大型设备库") return <LibraryPage notify={notify} equipment={active === "厂务大型设备库"}/>;
   if (active === "机台二次配批量算量") return <MachinePage notify={notify}/>;
@@ -133,22 +135,21 @@ function CompliancePage({notify}:{notify:Notify}) {
   </>;
 }
 
+type BomRow = { id: string; itemCode: string; itemName: string; specification: string; quantity: number; unit: string; unitPriceCny: number; wastePct: number; systemId?: string | null; };
+
 function BomPage({notify}:{notify:Notify}) {
-  const [margin,setMargin]=useState(8); const [selected,setSelected]=useState<number[]>([]);
-  const rows=[
-    ["VCR-4-EP","VCR 面密封接头","电子特气",'1/4” · 316L EP',186,240],
-    ["TUBE-8-BA","BA 不锈钢管","大宗气体",'1/2” × 1.24 mm',92,180],
-    ["PFA-6-F","PFA 扩口接头","湿化学品",'3/8” · HP PFA',128,96],
-    ["UPW-PVDF","PVDF 隔膜阀","超纯水",'DN15 · HP PVDF',460,48],
-    ["BOLT-M5","四组合螺栓副","机台二次配",'M5 × 8 · 304',2.6,960],
-  ] as const;
-  const sum=rows.reduce((s,r)=>s+r[4]*Math.ceil(r[5]*(1+margin/100)),0);
-  const toggleAll=()=>setSelected(selected.length===rows.length?[]:rows.map((_,i)=>i));
+  const [margin,setMargin]=useState(8); const [selected,setSelected]=useState<string[]>([]); const [rows,setRows]=useState<BomRow[]>([]); const [query,setQuery]=useState(""); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
+  useEffect(()=>{fetch("/api/master-data?entity=bomItems",{cache:"no-store"}).then(async response=>{const payload=await response.json();if(!response.ok)throw new Error(payload.error||"BOM 数据加载失败");setRows(payload.data?.bomItems??[])}).catch(cause=>setError(cause instanceof Error?cause.message:"BOM 数据加载失败")).finally(()=>setLoading(false))},[]);
+  const shown=rows.filter(r=>!query||`${r.itemCode} ${r.itemName} ${r.specification}`.toLowerCase().includes(query.toLowerCase()));
+  const sum=shown.reduce((s,r)=>s+r.unitPriceCny*Math.ceil(r.quantity*(1+margin/100)),0);
+  const totalQuantity=shown.reduce((s,r)=>s+Math.ceil(r.quantity*(1+margin/100)),0);
+  const toggleAll=()=>setSelected(selected.length===shown.length?[]:shown.map(r=>r.id));
   return <>
-    <PageTop eyebrow="BILL OF MATERIALS" title="BOM 成本报表" desc="统一管理物料数量、采购余量与成本分项，支持多格式专业交付" actions={<><button className="exportButton" onClick={()=>notify("CAD 标注文本已复制")}>复制 CAD 文本</button><button className="exportButton" onClick={()=>notify("设计说明文档已生成")}>生成设计说明</button><button className="primaryButton" onClick={()=>notify("Excel 报表已生成")}>导出 Excel</button></>}/>
-    <div className="bomKpis"><section className="card"><span>物料条目</span><b>128<small>项</small></b><p>覆盖 6 类流体系统</p></section><section className="card"><span>物料总数量</span><b>{(1524*(1+margin/100)).toFixed(0)}<small>件</small></b><p>已含 {margin}% 采购余量</p></section><section className="card"><span>预估材料成本</span><b>¥ {sum.toLocaleString()}</b><p className="greenText">较预算低 8.4% ↘</p></section><section className="card costMini"><div className="miniDonut"/><span>成本构成</span><p>管路 42% · 阀件 28%</p></section></div>
+    <PageTop eyebrow="BILL OF MATERIALS" title="BOM 成本报表" desc="统一管理物料数量、采购余量与成本分项，支持多格式专业交付" actions={<><button className="exportButton" onClick={()=>notify("CAD 标注文本已复制")}>复制 CAD 文本</button><button className="exportButton" onClick={()=>notify("设计说明文档已生成")}>生成设计说明</button><button className="primaryButton" onClick={()=>notify("Excel 导出接口已准备，下一步接入文件服务")}>导出 Excel</button></>}/>
+    {error&&<div className="dataBackendState"><i>!</i><span><b>BOM 未能读取 D1</b><small>{error}</small></span></div>}
+    <div className="bomKpis"><section className="card"><span>物料条目</span><b>{rows.length}<small>项</small></b><p>当前项目已持久化 BOM</p></section><section className="card"><span>物料总数量</span><b>{totalQuantity}<small>件</small></b><p>已含 {margin}% 采购余量</p></section><section className="card"><span>预估材料成本</span><b>¥ {sum.toLocaleString()}</b><p className="greenText">根据当前单价实时计算</p></section><section className="card costMini"><div className="miniDonut"/><span>成本构成</span><p>按系统与物料分类汇总</p></section></div>
     <section className="card marginControl"><div><span>采购余量</span><b>{margin}%</b><small>建议范围 5% — 15%，数量与成本实时联动</small></div><input type="range" min="5" max="15" value={margin} onChange={e=>setMargin(+e.target.value)}/><div className="rangeTicks"><span>5%</span><span>10%</span><span>15%</span></div></section>
-    <section className="card tableCard bomTable"><div className="bomToolbar"><div className="searchBox">⌕<input placeholder="搜索 BOM 编码、名称或规格…"/><kbd>{rows.length} 项</kbd></div><div><button>系统筛选</button><button onClick={()=>notify("已打开打印预览")}>打印预览</button></div></div><div className="dataTable"><table><thead><tr><th><input type="checkbox" checked={selected.length===rows.length} onChange={toggleAll}/></th><th>物料编码</th><th>物料名称</th><th>流体系统</th><th>规格 / 材质</th><th>单价</th><th>设计量</th><th>采购量</th><th>小计</th></tr></thead><tbody>{rows.map((r,i)=>{const buy=Math.ceil(r[5]*(1+margin/100));return <tr key={r[0]}><td><input type="checkbox" checked={selected.includes(i)} onChange={()=>setSelected(selected.includes(i)?selected.filter(x=>x!==i):[...selected,i])}/></td><td><code>{r[0]}</code></td><td><b>{r[1]}</b></td><td><span className={`chip ${systemClass[r[2]]}`}>{r[2]}</span></td><td>{r[3]}</td><td>¥ {r[4]}</td><td>{r[5]}</td><td><b className="blueText">{buy}</b></td><td>¥ {(buy*r[4]).toLocaleString()}</td></tr>})}</tbody></table></div><div className="tableFooter"><span>已选择 {selected.length} 项</span><b>当前页成本合计：¥ {sum.toLocaleString()}</b></div></section>
+    <section className="card tableCard bomTable"><div className="bomToolbar"><div className="searchBox">⌕<input placeholder="搜索 BOM 编码、名称或规格…" value={query} onChange={e=>setQuery(e.target.value)}/><kbd>{shown.length} 项</kbd></div><div><button onClick={()=>notify("请在工程主数据录入中新增或修改 BOM 条目")}>系统筛选</button><button onClick={()=>notify("打印预览将在文件服务接入后生成")}>打印预览</button></div></div><div className="dataTable"><table><thead><tr><th><input type="checkbox" checked={shown.length>0&&selected.length===shown.length} onChange={toggleAll}/></th><th>物料编码</th><th>物料名称</th><th>流体系统</th><th>规格 / 材质</th><th>单价</th><th>设计量</th><th>采购量</th><th>小计</th></tr></thead><tbody>{loading?<tr><td colSpan={9}>正在读取 D1 BOM…</td></tr>:shown.map((r)=>{const buy=Math.ceil(r.quantity*(1+margin/100));const systemName=r.systemId?({"sys-utl":"动力公用工程","sys-cr":"洁净室与洁净包","sys-wtr":"纯水与废水","sys-exh":"工艺排风","sys-fire":"消防与生命安全","sys-ctrl":"机电自控与能源管理"} as Record<string,string>)[r.systemId]||"未分配":"未分配";return <tr key={r.id}><td><input type="checkbox" checked={selected.includes(r.id)} onChange={()=>setSelected(selected.includes(r.id)?selected.filter(x=>x!==r.id):[...selected,r.id])}/></td><td><code>{r.itemCode}</code></td><td><b>{r.itemName}</b></td><td><span className={`chip ${systemClass[systemName]||"gray"}`}>{systemName}</span></td><td>{r.specification}</td><td>¥ {r.unitPriceCny}</td><td>{r.quantity} {r.unit}</td><td><b className="blueText">{buy} {r.unit}</b></td><td>¥ {(buy*r.unitPriceCny).toLocaleString()}</td></tr>})}</tbody></table></div><div className="tableFooter"><span>已选择 {selected.length} 项</span><b>当前页成本合计：¥ {sum.toLocaleString()}</b></div></section>
   </>;
 }
 

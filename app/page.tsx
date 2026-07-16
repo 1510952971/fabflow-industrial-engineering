@@ -7,7 +7,7 @@ const navGroups = [
   {id:"project", icon:"⌂", title:"项目工作流", items:[["⌂", "项目工作台"], ["◎", "全球建设管理"], ["⚙", "工程执行中心"], ["◷", "计划与供应链"]]},
   {id:"design", icon:"◇", title:"设计与选型", items:[["◇", "介质参数录入"], ["⌁", "结构紧固件计算"], ["⑂", "管路接头选型"], ["▣", "厂务大型设备库"], ["⊞", "机台二次配批量算量"], ["▥", "设备工厂协同"]]},
   {id:"systems", icon:"◫", title:"系统工程与校验", items:[["◫", "系统工程域"], ["✓", "合规校验中心"]]},
-  {id:"delivery", icon:"▤", title:"数据与交付", items:[["▤", "BOM 成本报表"], ["◌", "数据底座与协同"], ["□", "项目档案库"]]},
+  {id:"delivery", icon:"▤", title:"数据与交付", items:[["✎", "工程主数据录入"], ["▤", "BOM 成本报表"], ["◌", "数据底座与协同"], ["□", "项目档案库"]]},
   {id:"tools", icon:"⇄", title:"工具", items:[["⇄", "全局工具箱"]]},
 ];
 
@@ -66,13 +66,13 @@ export default function Home() {
     <section className="workspace">
       <header>
         <div><p>项目工作台 <span>/ FAB-2026-0715</span></p><h1>先进制程厂务扩建项目</h1></div>
-        <div className="headerActions"><button className="iconBtn" onClick={()=>setDrawer(true)}>⇄</button><button className="iconBtn">⌕</button><button className="primary" onClick={()=>notify("项目数据已保存")}>保存项目 <span>⌘ S</span></button></div>
+        <div className="headerActions"><button className="iconBtn" onClick={()=>setDrawer(true)}>⇄</button><button className="iconBtn" onClick={()=>activate("工程主数据录入","delivery")} title="搜索与编辑工程主数据">⌕</button><button className="primary" onClick={()=>activate("工程主数据录入","delivery")}>录入 / 保存数据 <span>⌘ S</span></button></div>
       </header>
 
       <div className="content">
         {active === "项目工作台" ? <>
         <section className="projectHero card">
-          <div className="heroCopy"><div className="eyebrow"><i/> DESIGN IN PROGRESS</div><h2>Fab 2A 厂务系统深化设计</h2><p>南京 · 洁净等级 ISO 4 · 最后更新于 10 分钟前</p><div className="chips"><span className="chip blue">电子特气 VMB</span><span className="chip green">大宗 BSGS</span><span className="chip purple">湿化学品 CDS</span><span className="chip cyan">超纯水 UPW</span><button>＋ 添加系统</button></div></div>
+          <div className="heroCopy"><div className="eyebrow"><i/> DESIGN IN PROGRESS</div><h2>Fab 2A 厂务系统深化设计</h2><p>南京 · 洁净等级 ISO 4 · 最后更新于 10 分钟前</p><div className="chips"><span className="chip blue">电子特气 VMB</span><span className="chip green">大宗 BSGS</span><span className="chip purple">湿化学品 CDS</span><span className="chip cyan">超纯水 UPW</span><button onClick={()=>activate("工程主数据录入","delivery")}>＋ 添加系统</button></div></div>
           <div className="heroMetric"><span>设计完成度</span><b>68<small>%</small></b><div><i style={{width:"68%"}}/></div><p>12 个模块中已完成 8 个</p></div>
         </section>
 
@@ -83,11 +83,11 @@ export default function Home() {
 
         <section className="workflowStrip card"><div className="workflowHead"><div><span>PROJECT CONTROL PATH</span><h2>当前项目工作流</h2></div><p>按顺序推进，减少跨模块查找</p></div><div className="workflowSteps">{workflowSteps.map((step,index)=><button key={step.no} className={index===0?"current":""} onClick={()=>activate(step.target,step.group)}><i>{step.no}</i><span><b>{step.title}</b><small>{step.hint}</small></span><em>{step.state}</em>{index<workflowSteps.length-1&&<strong>→</strong>}</button>)}</div></section>
 
-        <div className="sectionTitle"><div><h2>今日工作面板</h2><p>核心参数实时联动 · 卡片可按习惯自由排布</p></div><button>＋ 添加模块</button></div>
+        <div className="sectionTitle"><div><h2>今日工作面板</h2><p>核心参数实时联动 · 固定显示高频任务</p></div><button disabled title="自定义面板将在工作流闭环后开放">模块配置（规划中）</button></div>
 
         <div className="dashboardGrid">
           <section className="card parameters">
-            <div className="cardHead"><div className="cardIcon bluebg">◇</div><div><h3>工况参数</h3><p>电子特气 · VMB 柜体装配</p></div><button>•••</button></div>
+            <div className="cardHead"><div className="cardIcon bluebg">◇</div><div><h3>工况参数</h3><p>电子特气 · VMB 柜体装配</p></div><button onClick={()=>activate("介质参数录入","design")}>编辑</button></div>
             <div className="fields">
               <label><span>设计压力 <b>MPa</b></span><input type="number" step="0.01" value={pressure} onChange={e=>setPressure(+e.target.value)}/><small>范围 0.1 — 1.0 MPa</small></label>
               <label><span>工作温度 <b>°C</b></span><input type="number" defaultValue={23}/><small>常温工况</small></label>
@@ -105,7 +105,7 @@ export default function Home() {
           </section>
 
           <section className="card selector">
-            <div className="cardHead"><div className="cardIcon purplebg">⑂</div><div><h3>管路与设备选型</h3><p>基于当前工况智能匹配</p></div><button>查看全部 →</button></div>
+            <div className="cardHead"><div className="cardIcon purplebg">⑂</div><div><h3>管路与设备选型</h3><p>基于当前工况智能匹配</p></div><button onClick={()=>activate("管路接头选型","design")}>查看全部 →</button></div>
             <div className="filterChips"><button className="selected">全部 24</button><button>316L</button><button>VCR 接头</button><button>≤ 1.0 MPa</button></div>
             <div className="materialList">{materials.map(m=><div className="material" key={m.name}><div className={`materialIcon ${m.color}`}>⌁</div><div className="materialInfo"><div><b>{m.name}</b><span className={`chip ${m.color}`}>{m.system}</span></div><p>{m.spec} · 耐压 {m.pressure/10} MPa</p><div className="mini"><i style={{width:m.pressure+"%"}}/></div></div><div className="price"><b>¥{m.price}</b><button className={added.includes(m.name)?"done":""} onClick={()=>{setAdded(x=>x.includes(m.name)?x:[...x,m.name]);notify(`${m.name} 已加入 BOM`)}}>{added.includes(m.name)?"✓":"＋"}</button></div></div>)}</div>
           </section>
@@ -113,7 +113,7 @@ export default function Home() {
           <section className="card compliance">
             <div className="cardHead"><div className="cardIcon orangebg">✓</div><div><h3>合规校验</h3><p>规则库 · SEMI / 国标 / 企业标准</p></div><span className="warningTag">3 项需关注</span></div>
             <div className="score"><div className="ring"><span>92<small>分</small></span></div><div><b>整体状态良好</b><p>已检查 36 项设计规则</p><div><span>✓ 31 合格</span><span>! 3 警告</span><span>× 2 待确认</span></div></div></div>
-            <div className="alerts"><button><i className="amber"/><span><b>薄板装配需增加防松措施</b><small>紧固件 · 建议使用带齿垫圈</small></span><em>›</em></button><button><i className="red"/><span><b>材料禁忌：Cl₂ 不兼容 EPDM</b><small>VMB-02 · 建议更换 PCTFE</small></span><em>›</em></button></div>
+            <div className="alerts"><button onClick={()=>activate("合规校验中心","systems")}><i className="amber"/><span><b>薄板装配需增加防松措施</b><small>紧固件 · 建议使用带齿垫圈</small></span><em>›</em></button><button onClick={()=>activate("合规校验中心","systems")}><i className="red"/><span><b>材料禁忌：Cl₂ 不兼容 EPDM</b><small>VMB-02 · 建议更换 PCTFE</small></span><em>›</em></button></div>
           </section>
 
           <section className="card machine">
@@ -122,7 +122,7 @@ export default function Home() {
           </section>
 
           <section className="card bom">
-            <div className="cardHead"><div className="cardIcon bluebg">▤</div><div><h3>项目 BOM 概览</h3><p>实时汇总 · 含 5% 采购余量</p></div><button>打开报表 →</button></div>
+            <div className="cardHead"><div className="cardIcon bluebg">▤</div><div><h3>项目 BOM 概览</h3><p>实时汇总 · 含 5% 采购余量</p></div><button onClick={()=>activate("BOM 成本报表","delivery")}>打开报表 →</button></div>
             <div className="bomValue"><span>预估材料成本</span><b>¥ 286,420.00</b><small>较预算低 8.4% ↘</small></div><div className="costbar"><i/><i/><i/><i/></div><div className="costlegend"><span>管路 42%</span><span>阀件 28%</span><span>紧固件 18%</span><span>其他 12%</span></div>
           </section>
         </div>

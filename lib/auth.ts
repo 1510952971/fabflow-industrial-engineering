@@ -5,6 +5,7 @@ import { ApiError } from "./api";
 
 export type Permission =
   | "data:read"
+  | "data:write"
   | "equipment:read"
   | "equipment:validate"
   | "files:read"
@@ -23,9 +24,9 @@ export type Principal = {
 
 const permissionMap: Record<string, Permission[] | ["*"]> = {
   platform_admin: ["*"],
-  project_manager: ["data:read", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create", "approvals:act"],
-  system_owner: ["data:read", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create", "approvals:act"],
-  equipment_engineer: ["data:read", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create"],
+  project_manager: ["data:read", "data:write", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create", "approvals:act"],
+  system_owner: ["data:read", "data:write", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create", "approvals:act"],
+  equipment_engineer: ["data:read", "data:write", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create"],
   reviewer: ["data:read", "equipment:read", "files:read", "approvals:read", "approvals:act"],
   viewer: ["data:read", "equipment:read", "files:read", "approvals:read"],
 };
