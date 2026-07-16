@@ -24,7 +24,10 @@ import { authorize } from "@/lib/auth";
 
 type FieldKind = "text" | "number" | "integer" | "boolean" | "json";
 type EntityConfig = {
+  // The table map is deliberately closed below; the values are never derived from request text.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   table: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   idColumn: any;
   label: string;
   fields: Record<string, FieldKind>;
@@ -186,9 +189,22 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const principal = await authorize(request, "data:write");
-    const body = await request.json() as { entity?: string; data?: unknown };
+    const body = await request.json() as { entity?: string; data?: unknown; items?: unknown[] };
     const entity = body.entity ?? "";
     const config = getConfig(entity);
+    if (body.items) {
+      if (!Array.isArray(body.items) || body.items.length === 0 || body.items.length > 200) throw new ApiError(400, "批量导入必须包含 1–200 条记录", "INVALID_BATCH");
+      const normalized = body.items.map((item) => normalizeData(config, item));
+      const db = getDb();
+      const created: Record<string, unknown>[] = [];
+      for (const values of normalized) {
+        const row = { id: crypto.randomUUID(), ...values } as Record<string, unknown>;
+        await db.insert(config.table).values(row);
+        created.push(row);
+        await writeAudit(request, principal, { projectId: projectIdFor(entity, row), action: `${entity}.import`, entityType: entity, entityId: String(row.id), after: row });
+      }
+      return Response.json({ items: created, imported: created.length }, { status: 201 });
+    }
     const values = normalizeData(config, body.data);
     const row = { id: crypto.randomUUID(), ...values } as Record<string, unknown>;
     const db = getDb();

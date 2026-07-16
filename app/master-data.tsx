@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { downloadCsv, parseCsv } from "@/lib/client-actions";
 
 type Notify = (message: string) => void;
 type Row = Record<string, unknown> & { id?: string };
+type Attachment = { id: string; fileName: string; category: string; version: number; sizeBytes: number; uploadedBy: string; createdAt: string };
 type FieldType = "text" | "number" | "textarea" | "select" | "relation" | "boolean" | "date" | "json";
 type Field = {
   key: string;
@@ -207,14 +209,18 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
   const [canWrite, setCanWrite] = useState(false);
   const [identity, setIdentity] = useState("");
   const [error, setError] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const importInput = useRef<HTMLInputElement>(null);
+  const attachmentInput = useRef<HTMLInputElement>(null);
 
   const definition = definitions[activeEntity];
-  const rows = records[activeEntity] ?? [];
   const filteredRows = useMemo(() => {
+    const rows = records[activeEntity] ?? [];
     const needle = query.trim().toLowerCase();
     if (!needle) return rows;
     return rows.filter((row) => JSON.stringify(row).toLowerCase().includes(needle));
-  }, [query, rows]);
+  }, [query, records, activeEntity]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
 
   const readError = async (response: Response) => {
@@ -235,22 +241,42 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    const target = window.sessionStorage.getItem("fabflow:master-entity");
+    if (target && definitions[target]) window.setTimeout(() => setActiveEntity(target), 0);
+    window.sessionStorage.removeItem("fabflow:master-entity");
+    window.setTimeout(() => void load(), 0);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const makeNew = () => {
     const next: Row = { ...(definition.defaults ?? {}) };
     for (const field of definition.fields) {
       if (field.type === "relation" && field.required && field.relation && !(field.key in next)) next[field.key] = records[field.relation]?.[0]?.id ?? "";
     }
-    setSelectedId(null); setDraft(next); setBaseline(next); setError("");
+    setSelectedId(null); setDraft(next); setBaseline(next); setAttachments([]); setError("");
   };
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { setQuery(""); makeNew(); }, [activeEntity]);
+
+  const projectIdForRow = (row: Row, id?: string | null) => String(row.projectId || (activeEntity === "projects" ? id : "") || records.projects?.[0]?.id || "proj-fab2a");
+
+  const loadAttachments = async (id: string, row: Row) => {
+    try {
+      const projectId = projectIdForRow(row, id);
+      const response = await fetch(`/api/files?projectId=${encodeURIComponent(projectId)}&entityType=${encodeURIComponent(activeEntity)}&entityId=${encodeURIComponent(id)}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(await readError(response));
+      const payload = await response.json() as { files?: Attachment[] };
+      setAttachments(payload.files ?? []);
+    } catch { setAttachments([]); }
+  };
 
   const selectRow = (row: Row) => {
     const editable: Row = {};
     for (const field of definition.fields) editable[field.key] = field.type === "json" ? displayJson(row[field.key]) : row[field.key] ?? "";
-    setSelectedId(String(row.id)); setDraft(editable); setBaseline(editable); setError("");
+    const id = String(row.id);
+    setSelectedId(id); setDraft(editable); setBaseline(editable); setError("");
+    void loadAttachments(id, row);
   };
 
   const updateField = (field: Field, value: unknown) => setDraft((current) => ({ ...current, [field.key]: value }));
@@ -297,6 +323,56 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
     finally { setSaving(false); }
   };
 
+  const downloadTemplate = () => {
+    downloadCsv(`${activeEntity}-import-template.csv`, definition.fields.map((field) => field.label), [definition.fields.map((field) => definition.defaults?.[field.key] ?? "")]);
+    notify(`${definition.label}批量导入模板已下载`);
+  };
+
+  const importRecords = async (file: File) => {
+    if (!canWrite) { setError("当前账号没有批量导入权限"); return; }
+    setSaving(true); setError("");
+    try {
+      const text = await file.text();
+      let items: Row[];
+      if (file.name.toLowerCase().endsWith(".json")) {
+        const parsed = JSON.parse(text) as unknown;
+        if (!Array.isArray(parsed)) throw new Error("JSON 根节点必须是数组");
+        items = parsed as Row[];
+      } else {
+        const matrix = parseCsv(text);
+        if (matrix.length < 2) throw new Error("CSV 必须包含表头和至少一行数据");
+        const headers = matrix[0].map((heading) => definition.fields.find((field) => field.key === heading || field.label === heading)?.key ?? "");
+        items = matrix.slice(1).map((cells) => Object.fromEntries(headers.map((key, index) => [key, cells[index] ?? ""]).filter(([key]) => key)));
+      }
+      if (!items.length) throw new Error("没有可导入的数据");
+      const response = await fetch("/api/master-data", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: activeEntity, items }) });
+      if (!response.ok) throw new Error(await readError(response));
+      const payload = await response.json() as { items: Row[]; imported: number };
+      setRecords((current) => ({ ...current, [activeEntity]: [...payload.items, ...(current[activeEntity] ?? [])] }));
+      notify(`已导入 ${payload.imported} 条${definition.label}记录，审计日志已生成`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "批量导入失败"); }
+    finally { setSaving(false); if (importInput.current) importInput.current.value = ""; }
+  };
+
+  const uploadAttachment = async (file: File) => {
+    if (!selectedId || !canWrite) { setError("请先保存并选中一条记录，再上传附件"); return; }
+    setUploading(true); setError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("projectId", projectIdForRow(draft, selectedId));
+      form.append("entityType", activeEntity);
+      form.append("entityId", selectedId);
+      form.append("category", ["technicalRules", "brandRules"].includes(activeEntity) ? "source_document" : "evidence");
+      const response = await fetch("/api/files", { method: "POST", body: form });
+      if (!response.ok) throw new Error(await readError(response));
+      const payload = await response.json() as { file: Attachment };
+      setAttachments((current) => [payload.file, ...current]);
+      notify(`${payload.file.fileName} 已保存到 R2，并关联当前${definition.label}`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "附件上传失败"); }
+    finally { setUploading(false); if (attachmentInput.current) attachmentInput.current.value = ""; }
+  };
+
   return <>
     <div className="masterTop">
       <div><span>AUTHORITATIVE DATA ENTRY</span><h2>工程主数据录入中心</h2><p>项目 → 系统 → Tag / 接口 → 设备与材料 → BOM / 测试包 / Punch，一处录入、全程留痕</p></div>
@@ -315,7 +391,7 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
       </aside>
 
       <section className="card masterList">
-        <div className="masterListHead"><div><span>{definition.plural}</span><h3>{definition.description}</h3></div><button disabled={!canWrite} onClick={makeNew}>＋ 新增</button></div>
+        <div className="masterListHead"><div><span>{definition.plural}</span><h3>{definition.description}</h3></div><div><button onClick={downloadTemplate}>模板</button><button disabled={!canWrite} onClick={() => importInput.current?.click()}>导入</button><button disabled={!canWrite} onClick={makeNew}>＋ 新增</button><input ref={importInput} type="file" accept=".csv,.json,text/csv,application/json" hidden onChange={(event) => event.target.files?.[0] && void importRecords(event.target.files[0])}/></div></div>
         <label className="masterSearch">⌕<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`搜索${definition.label}…`} /><kbd>{filteredRows.length}</kbd></label>
         <div className="masterRows">{loading ? <div className="masterEmpty"><i className="skeleton"/><i className="skeleton"/><i className="skeleton"/></div> : filteredRows.length ? filteredRows.map((row) => <button key={row.id} className={selectedId === row.id ? "active" : ""} onClick={() => selectRow(row)}><i>{definition.icon}</i><span><b>{labelFor(row, definition)}</b><small>{definition.subtitle.map((key) => row[key]).filter(Boolean).join(" · ") || "暂无辅助信息"}</small></span><em>›</em></button>) : <div className="masterEmpty"><i>＋</i><b>还没有{definition.label}记录</b><small>{canWrite ? "点击“新增”建立第一条权威数据" : "当前账号没有写入权限"}</small></div>}</div>
       </section>
@@ -334,6 +410,7 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
           if (field.type === "textarea") return <label className={className} key={field.key}><span>{field.label}{field.required && <b>*</b>}</span><textarea value={String(value)} disabled={!canWrite} placeholder={field.placeholder} onChange={(event) => updateField(field, event.target.value)} />{field.help && <small>{field.help}</small>}</label>;
           return <label className={className} key={field.key}><span>{field.label}{field.required && <b>*</b>}</span><input type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} step={field.type === "number" ? "any" : undefined} value={String(value)} disabled={!canWrite} placeholder={field.placeholder} onChange={(event) => updateField(field, event.target.value)} />{field.help && <small>{field.help}</small>}</label>;
         })}</div>
+        {selectedId && <div className="masterAttachments"><div><span>R2 关联附件</span><b>{attachments.length} 份文件</b></div><div className="masterAttachmentList">{attachments.slice(0, 3).map((file) => <span key={file.id}><i>▧</i><b>{file.fileName}</b><small>v{file.version} · {(file.sizeBytes / 1024).toFixed(1)} KB</small></span>)}{!attachments.length && <small>暂无附件，可上传技术文件、品牌表、图纸、计算书或签字记录</small>}</div><button disabled={!canWrite || uploading} onClick={() => attachmentInput.current?.click()}>{uploading ? "上传中…" : "＋ 上传附件"}</button><input ref={attachmentInput} type="file" hidden onChange={(event) => event.target.files?.[0] && void uploadAttachment(event.target.files[0])}/></div>}
         <div className="masterActions"><button className="danger" disabled={!selectedId || !canWrite || saving} onClick={remove}>删除记录</button><span>{dirty ? "● 尚未保存" : "✓ 无待保存修改"}</span><button className="soft" disabled={saving || !dirty} onClick={() => setDraft(baseline)}>撤销</button><button className="primaryButton" disabled={!canWrite || saving || !dirty} onClick={save}>{saving ? "保存中…" : selectedId ? "保存修改" : "创建记录"}</button></div>
       </section>
     </div>

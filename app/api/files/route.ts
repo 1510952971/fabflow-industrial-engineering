@@ -7,14 +7,19 @@ import { authorize } from "@/lib/auth";
 import { writeAudit } from "@/lib/audit";
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
-const allowedEntities = new Set(["project", "system", "tag", "interface", "material", "equipment_model", "selection_run", "test_pack", "punch", "approval"]);
+const allowedEntities = new Set(["project", "system", "tag", "interface", "material", "equipment_model", "selection_run", "test_pack", "punch", "approval", "projects", "systems", "tags", "interfaces", "materials", "materialCompatibility", "equipmentFactories", "equipmentModels", "equipmentComponents", "equipmentPorts", "technicalRules", "brandRules", "bomItems", "purchaseOrders", "testPacks", "punchItems"]);
 
 export async function GET(request: Request) {
   try {
     await authorize(request, "files:read");
     const url = new URL(request.url);
     const projectId = url.searchParams.get("projectId") ?? "proj-fab2a";
-    const rows = await getDb().select().from(attachments).where(eq(attachments.projectId, projectId)).orderBy(desc(attachments.createdAt)).limit(100);
+    const entityType = url.searchParams.get("entityType");
+    const entityId = url.searchParams.get("entityId");
+    const conditions = [eq(attachments.projectId, projectId)];
+    if (entityType) conditions.push(eq(attachments.entityType, entityType));
+    if (entityId) conditions.push(eq(attachments.entityId, entityId));
+    const rows = await getDb().select().from(attachments).where(and(...conditions)).orderBy(desc(attachments.createdAt)).limit(100);
     return Response.json({ files: rows });
   } catch (error) { return errorResponse(error); }
 }

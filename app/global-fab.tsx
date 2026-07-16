@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { downloadCsv, openMasterData } from "@/lib/client-actions";
 
 type Notify = (message:string)=>void;
 
@@ -39,7 +40,12 @@ function PageTop({actions}:{actions:React.ReactNode}){
   return <div className="moduleTop globalTop"><div><span>GLOBAL FAB CONTROL TOWER</span><h2>全球 FAB 建设与设计管理</h2><p>统一管理多厂区项目组合、阶段闸门、跨专业协同、全球标准与数字化交付</p></div><div className="moduleActions">{actions}</div></div>;
 }
 
-export function GlobalFabPage({notify}:{notify:Notify}){
+export function GlobalFabPage({notify:parentNotify}:{notify:Notify}){
+  const notify:Notify=(message)=>{
+    if(message.includes("全球项目周报")) downloadCsv("fabflow-global-fab-weekly-report.csv",["项目","区域","阶段","进度","开放问题"],fabs.map(f=>[f.name,f.region,f.stage,`${f.progress}%`,f.open]));
+    if(message.includes("新 FAB 项目")||message.includes("新文档")) openMasterData("projects");
+    parentNotify(message);
+  };
   const [view,setView]=useState("项目组合");
   const [region,setRegion]=useState("全部区域");
   const [selected,setSelected]=useState(fabs[0].code);

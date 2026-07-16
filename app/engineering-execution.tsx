@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { downloadCsv, openMasterData } from "@/lib/client-actions";
 
 type Notify=(message:string)=>void;
 
@@ -34,7 +35,15 @@ const systems=[
   {id:"SYS-EXH-011",name:"Acid Exhaust AE-03",area:"FAB / Roof",mc:74,rfc:53,rfsu:22,punchA:1,punchB:17,test:"风管漏风测试",owner:"HVAC Cx Team"},
 ];
 
-export function EngineeringExecutionPage({notify}:{notify:Notify}){
+export function EngineeringExecutionPage({notify:parentNotify}:{notify:Notify}){
+  const notify:Notify=(message)=>{
+    if(message.includes("工程事项")) openMasterData("testPacks");
+    if(message.includes("专业接口")) openMasterData("interfaces");
+    if(message.includes("测试包")) openMasterData("testPacks");
+    if(message.includes("Vendor Data")) openMasterData("equipmentModels");
+    if(message.includes("工程执行日报")) downloadCsv("fabflow-execution-daily-report.csv",["项目区段","输入完整度","CWP可放行率","MC","A类Punch"],[["FAB 2A Utilities","89%","71%","82%","6"]]);
+    parentNotify(message);
+  };
   const [tab,setTab]=useState("设计输入");
   const [inputs,setInputs]=useState(initialInputs);
   const [changes,setChanges]=useState(initialChanges);

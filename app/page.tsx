@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ModuleRouter } from "./modules";
+import { downloadCsv, openMasterData } from "@/lib/client-actions";
 
 const navGroups = [
   {id:"project", icon:"⌂", title:"项目工作流", items:[["⌂", "项目工作台"], ["◎", "全球建设管理"], ["⚙", "工程执行中心"], ["◷", "计划与供应链"]]},
@@ -46,11 +47,44 @@ export default function Home() {
   const [active, setActive] = useState("项目工作台");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({project:true, design:true, systems:false, delivery:false, tools:false});
   const [added, setAdded] = useState<string[]>([]);
+  const [materialFilter, setMaterialFilter] = useState("全部");
+  const [profileOpen, setProfileOpen] = useState(false);
   const [toast, setToast] = useState("");
   const bolt = thickness <= 2 ? "M5 × 8" : thickness <= 4 ? "M5 × 12" : "M6 × 16";
   const total = useMemo(() => points * 4, [points]);
   const notify = (message:string) => { setToast(message); window.setTimeout(()=>setToast(""), 1800); };
   const activate = (label:string, groupId?:string) => { setActive(label); if(groupId) setOpenGroups(x=>({...x,[groupId]:true})); };
+  const createBomItem = async (data:Record<string,unknown>, success:string) => {
+    try {
+      const response = await fetch("/api/master-data", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({entity:"bomItems",data:{projectId:"proj-fab2a",quantity:1,unit:"件",unitPriceCny:0,wastePct:5,sourceType:"calculation",status:"draft",...data}}) });
+      const payload = await response.json();
+      if(!response.ok) throw new Error(payload.error||"BOM 写入失败");
+      notify(success);
+      return true;
+    } catch(error) { notify(error instanceof Error?error.message:"BOM 写入失败"); return false; }
+  };
+  const shownMaterials = materials.filter((item) => materialFilter === "全部" || (materialFilter === "316L" && item.spec.includes("316L")) || (materialFilter === "VCR" && item.name.includes("VCR")) || (materialFilter === "≤1MPa" && item.pressure <= 10));
+  useEffect(() => {
+    const openMaster = () => { setActive("工程主数据录入"); setOpenGroups((current) => ({ ...current, delivery: true })); };
+    window.addEventListener("fabflow:master-data", openMaster);
+    return () => window.removeEventListener("fabflow:master-data", openMaster);
+  }, []);
+  // 为旧模块中仍未接入后端的固定操作提供明确的可执行行为，避免按钮点击无反馈。
+  useEffect(() => {
+    const handleUnwiredAction = (event: MouseEvent) => {
+      const button = (event.target as HTMLElement).closest("button");
+      if (!button) return;
+      const label = button.textContent?.replace(/\s+/g, " ").trim();
+      if (label === "导入 Vendor Data") { openMasterData("equipmentModels"); notify("已打开设备型号主数据，可导入 Vendor Data"); }
+      else if (label === "导出催交清单") { downloadCsv("fabflow-expediting-list.csv", ["LLI","物料","Vendor","PO","承诺交期","最新预测","状态"], [["LLI-004","VMB Cabinet","Apex Systems","PO-26-01790","2026-07-24","2026-07-27","风险"],["LLI-007","UPW Pump Skid","PureTech","PO-26-01842","2026-08-02","2026-08-02","正常"]]); notify("催交清单已下载"); }
+      else if (label === "打印收货标签") { window.print(); notify("已打开收货标签打印预览"); }
+      else if (label === "扫描试验包") { openMasterData("testPacks"); notify("已打开测试包主数据"); }
+      else if (label === "管理系统边界") { openMasterData("systems"); notify("已打开系统边界主数据"); }
+      else if (label === "两周滚动计划") { notify("两周滚动计划已定位到当前工作包"); }
+    };
+    document.addEventListener("click", handleUnwiredAction);
+    return () => document.removeEventListener("click", handleUnwiredAction);
+  }, []);
 
   return <main className={dark ? "app dark" : "app"}>
     <aside className={collapsed ? "sidebar collapsed" : "sidebar"}>
@@ -59,7 +93,8 @@ export default function Home() {
       <nav className="navGroups">{navGroups.map(group=><div className="navGroup" key={group.id}><button className="navGroupTitle" onClick={()=>setOpenGroups(x=>({...x,[group.id]:!x[group.id]}))}><span><em>{group.icon}</em><b>{group.title}</b></span><i>{openGroups[group.id]?"−":"＋"}</i></button>{openGroups[group.id]&&<div className="navGroupItems">{group.items.map(([icon,label])=><button key={label} className={active===label?"active":""} onClick={()=>activate(label,group.id)} title={label}><em>{icon}</em><span>{label}</span>{label==="合规校验中心"&&<small>3</small>}</button>)}</div>}</div>)}</nav>
       <div className="sidebarBottom">
         <button className="themeSwitch" onClick={()=>setDark(!dark)}><em>{dark?"☾":"☼"}</em><span>{dark?"暗黑工程版":"浅色办公版"}</span><i className={dark?"on":""}/></button>
-        <div className="profile"><div>TC</div><span><b>唐工程师</b><small>工艺设计部</small></span><button>···</button></div>
+        <div className="profile"><div>TC</div><span><b>唐工程师</b><small>工艺设计部</small></span><button onClick={()=>setProfileOpen(!profileOpen)} aria-label="打开账户菜单">···</button></div>
+        {profileOpen&&<div className="profileMenu"><button onClick={()=>{activate("工程主数据录入","delivery");setProfileOpen(false)}}>✎ 主数据录入</button><button onClick={()=>{activate("数据底座与协同","delivery");setProfileOpen(false)}}>◌ 权限与审计</button></div>}
       </div>
     </aside>
 
@@ -101,13 +136,13 @@ export default function Home() {
             <div className="cardHead"><div className="cardIcon greenbg">⌁</div><div><h3>智能计算结果</h3><p><i className="live"/> 参数已实时同步</p></div><span className="verified">✓ 已校核</span></div>
             <div className="boltResult"><div><span>推荐螺栓规格</span><strong>{bolt}</strong><p>304 · 十字槽盘头 · 四组合</p></div><div className="boltVisual"><i/><i/><i/><i/><i/><i/></div></div>
             <div className="resultStats"><div><span>建议扭矩</span><b>{bolt.startsWith("M6")?"6.2":"4.8"} <small>N·m</small></b></div><div><span>采购数量</span><b>{Math.ceil(total*1.05)} <small>套</small></b></div><div><span>安全余量</span><b>5 <small>%</small></b></div></div>
-            <button className="outline" onClick={()=>notify("紧固件已加入 BOM")}>加入项目 BOM <span>→</span></button>
+            <button className="outline" onClick={()=>void createBomItem({itemCode:`BOLT-${bolt.replace(/\s/g,"")}`,itemName:"四组合螺栓副",specification:`${bolt} · 304`,quantity:Math.ceil(total*1.05),unit:"套",unitPriceCny:2.6,sourceId:"dashboard-fastener"},"紧固件已写入 D1 项目 BOM")}>加入项目 BOM <span>→</span></button>
           </section>
 
           <section className="card selector">
             <div className="cardHead"><div className="cardIcon purplebg">⑂</div><div><h3>管路与设备选型</h3><p>基于当前工况智能匹配</p></div><button onClick={()=>activate("管路接头选型","design")}>查看全部 →</button></div>
-            <div className="filterChips"><button className="selected">全部 24</button><button>316L</button><button>VCR 接头</button><button>≤ 1.0 MPa</button></div>
-            <div className="materialList">{materials.map(m=><div className="material" key={m.name}><div className={`materialIcon ${m.color}`}>⌁</div><div className="materialInfo"><div><b>{m.name}</b><span className={`chip ${m.color}`}>{m.system}</span></div><p>{m.spec} · 耐压 {m.pressure/10} MPa</p><div className="mini"><i style={{width:m.pressure+"%"}}/></div></div><div className="price"><b>¥{m.price}</b><button className={added.includes(m.name)?"done":""} onClick={()=>{setAdded(x=>x.includes(m.name)?x:[...x,m.name]);notify(`${m.name} 已加入 BOM`)}}>{added.includes(m.name)?"✓":"＋"}</button></div></div>)}</div>
+            <div className="filterChips">{[["全部","全部 3"],["316L","316L"],["VCR","VCR 接头"],["≤1MPa","≤ 1.0 MPa"]].map(([value,label])=><button key={value} className={materialFilter===value?"selected":""} onClick={()=>setMaterialFilter(value)}>{label}</button>)}</div>
+            <div className="materialList">{shownMaterials.map(m=><div className="material" key={m.name}><div className={`materialIcon ${m.color}`}>⌁</div><div className="materialInfo"><div><b>{m.name}</b><span className={`chip ${m.color}`}>{m.system}</span></div><p>{m.spec} · 耐压 {m.pressure/10} MPa</p><div className="mini"><i style={{width:m.pressure+"%"}}/></div></div><div className="price"><b>¥{m.price}</b><button disabled={added.includes(m.name)} className={added.includes(m.name)?"done":""} onClick={async()=>{const ok=await createBomItem({itemCode:m.name.startsWith("VCR")?"VCR-4-EP":m.name.startsWith("BA")?"TUBE-8-BA":"PFA-6-F",itemName:m.name,specification:m.spec,quantity:1,unit:"件",unitPriceCny:m.price,sourceType:"catalog",sourceId:m.name},`${m.name} 已写入 D1 项目 BOM`);if(ok)setAdded(x=>x.includes(m.name)?x:[...x,m.name])}}>{added.includes(m.name)?"✓":"＋"}</button></div></div>)}</div>
           </section>
 
           <section className="card compliance">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { downloadCsv, openMasterData } from "@/lib/client-actions";
 
 type Notify = (message: string) => void;
 type ComponentRow = { id:string; equipmentModelId:string; componentCode:string; componentName:string; function:string; medium:string; allowedMaterialsJson:string; requiredFinish:string; requiredCleanliness:string; designPressureMpa:number; designTemperatureC:number; connectionStandard:string; nominalSize:string; quantity:number; criticality:string };
@@ -26,7 +27,13 @@ const fallbackModels:ModelRow[]=[{
   ports:[{id:"port-gc-p1",portCode:"P-GAS-01",service:"SiH4",direction:"OUT",connectionStandard:"VCR",nominalSize:'1/4”',pressureRatingMpa:8.3,temperatureRatingC:120,faceToFaceMm:35}],
 }];
 
-export function EquipmentFactoryPage({notify}:{notify:Notify}){
+export function EquipmentFactoryPage({notify:parentNotify}:{notify:Notify}){
+  const notify:Notify=(message)=>{
+    if(message.includes("设备厂数据模板")) downloadCsv("fabflow-equipment-factory-template.csv",["设备厂编码","设备型号编码","部件编码","部件名称","接口标准","公称尺寸","设计压力MPa","设计温度℃","材料牌号","表面处理","清洁等级"],[]);
+    if(message.includes("设备厂协同邀请")) openMasterData("equipmentFactories");
+    if(message.includes("版本差异")) openMasterData("equipmentModels");
+    parentNotify(message);
+  };
   const [models,setModels]=useState<ModelRow[]>(fallbackModels); const [materials,setMaterials]=useState<MaterialRow[]>(fallbackMaterials);
   const [technicalRules,setTechnicalRules]=useState<TechnicalRuleRow[]>([]); const [brandRules,setBrandRules]=useState<BrandRuleRow[]>([]);
   const [modelId,setModelId]=useState(fallbackModels[0].id); const [componentId,setComponentId]=useState(fallbackModels[0].components[0].id); const [materialCode,setMaterialCode]=useState(fallbackMaterials[0].code); const [portId,setPortId]=useState(fallbackModels[0].ports[0].id);
@@ -39,7 +46,9 @@ export function EquipmentFactoryPage({notify}:{notify:Notify}){
   const brandAllowed=useMemo(()=>{if(!selectedMaterial||!brandRule)return null;try{return (JSON.parse(brandRule.allowedBrandsJson) as string[]).some(x=>selectedMaterial.manufacturer.toLowerCase().includes(x.toLowerCase())||x.toLowerCase().includes(selectedMaterial.manufacturer.toLowerCase()))}catch{return false}},[selectedMaterial,brandRule]);
 
   useEffect(()=>{fetch("/api/equipment/catalog").then(async res=>{if(!res.ok)throw new Error((await res.json()).error);return res.json()}).then(data=>{if(data.models?.length){setModels(data.models);setMaterials(data.materials);setTechnicalRules(data.technicalRules??[]);setBrandRules(data.brandRules??[]);setModelId(data.models[0].id);setComponentId(data.models[0].components[0]?.id??"");setPortId(data.models[0].ports[0]?.id??"");const preferred=data.materials?.find((x:MaterialRow)=>x.manufacturer!=="FabFlow Approved");if(preferred)setMaterialCode(preferred.code);setRole(data.principal?.roles?.join(" / ")??"viewer");setBackend("D1 权威数据库已连接 · 技术文件与品牌表已加载")}}).catch(()=>setBackend("演示数据 · 发布后需工作区身份"))},[]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(()=>{if(!model)return; const c=model.components[0]; const p=model.ports[0]; if(c){setComponentId(c.id);setMedium(c.medium);setConnection(c.connectionStandard);setSize(c.nominalSize);setPressure(Math.min(c.designPressureMpa,.72));setTemperature(Math.min(c.designTemperatureC,35))}if(p)setPortId(p.id);setValidation(null)},[modelId]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(()=>{if(!component)return;setMedium(component.medium);setConnection(component.connectionStandard);setSize(component.nominalSize);setValidation(null)},[componentId]);
 
   const validate=async()=>{if(!model||!component)return;setLoading(true);try{const res=await fetch("/api/equipment/validate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({projectId:"proj-fab2a",equipmentModelId:model.id,componentId:component.id,portId:port?.id,medium,selectedMaterialCode:materialCode,connectionStandard:connection,nominalSize:size,operatingPressureMpa:pressure,operatingTemperatureC:temperature,doubleContainment,flexibleTube})});const data=await res.json();if(!res.ok)throw new Error(data.error);setValidation(data);notify(data.status==="passed"?"选型校验通过并已写入审计日志":"选型存在不符合项，已形成校验记录")}catch(error){notify(error instanceof Error?error.message:"校验失败")}finally{setLoading(false)}};

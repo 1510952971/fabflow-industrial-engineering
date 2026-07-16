@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { downloadCsv, openMasterData } from "@/lib/client-actions";
 
 type Notify=(message:string)=>void;
 
@@ -27,7 +28,12 @@ const schedule=[
   {id:"M-05",name:"RFSU / 运营移交",owner:"运营团队",date:"01/26",progress:12,status:"正常",offset:78,width:17},
 ];
 
-export function ProgramControlsPage({notify}:{notify:Notify}){
+export function ProgramControlsPage({notify:parentNotify}:{notify:Notify}){
+  const notify:Notify=(message)=>{
+    if(message.includes("项目控制月报")) downloadCsv("fabflow-program-control-report.csv",["指标","当前值","说明"],[["关键路径浮时","-18 天","Utility Ready 受长周期设备影响"],["采购承诺额","$24.8M","已下单 82%"],["现场到货准时率","91%","较上月 +3.2%"]]);
+    if(message.includes("新控制事项")||message.includes("新长周期设备")||message.includes("收货批次")) openMasterData("purchaseOrders");
+    parentNotify(message);
+  };
   const [tab,setTab]=useState("主计划"); const [procurement,setProcurement]=useState(initialProcurement); const [receipts,setReceipts]=useState(receiving); const [contingency,setContingency]=useState(8);
   const updateProc=(id:string)=>{setProcurement(procurement.map(x=>x.id===id?{...x,expedite:"已升级至项目总监",status:"风险"}:x));notify(`${id} 已升级为项目级催交事项`)};
   const updateReceipt=(id:string)=>{setReceipts(receipts.map(x=>x.id===id?{...x,status:x.status==="待检"?"抽检中":x.status==="抽检中"?"已放行":x.status}:x));notify(`${id} 收货质量状态已更新`)};

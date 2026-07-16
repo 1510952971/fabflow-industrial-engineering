@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { downloadCsv, openMasterData } from "@/lib/client-actions";
 
 type Notify=(message:string)=>void;
 
@@ -25,13 +26,19 @@ const checks=[
   ["边界与 Tag 清单冻结","系统边界图、设备 Tag、管线号和 I/O 点表具备版本","完成"],["设计基准与计算书","容量、峰值、冗余、压力、流量和能耗计算已批准","完成"],["Vendor Data 与接口","关键设备资料、联锁、维护空间和电气条件已锁定","进行中"],["施工图与工作包","IFC 图、材料、施工方案和 ITP 已关联","进行中"],["试验与调试包","压力 / 气密 / 冲洗 / 功能 / 联锁试验包已建立","待开始"],["移交与运营资料","SOP、培训、备件、竣工图和 O&M 已纳入","待开始"],
 ];
 
-export function SystemEngineeringPage({notify}:{notify:Notify}){
+export function SystemEngineeringPage({notify:parentNotify}:{notify:Notify}){
+  const notify:Notify=(message)=>{
+    if(message.includes("新系统边界")) openMasterData("systems");
+    if(message.includes("新接口")) openMasterData("interfaces");
+    if(message.includes("新测试包")) openMasterData("testPacks");
+    parentNotify(message);
+  };
   const [selected,setSelected]=useState("UTL"); const [tab,setTab]=useState("系统总览"); const [interfaceRows,setInterfaceRows]=useState(interfaces); const [checksState,setChecksState]=useState(checks);
   const current=systems.find(x=>x.id===selected)??systems[0];
   const closeInterface=(id:string)=>{setInterfaceRows(interfaceRows.map(x=>x[0]===id?[...x.slice(0,5),"已关闭",x[6]]:x));notify(`${id} 接口问题已关闭`)};
   const toggleCheck=(index:number)=>{setChecksState(checksState.map((x,i)=>i===index?[x[0],x[1],x[2]==="完成"?"进行中":"完成"]:x));notify(`${checksState[index][0]} 状态已更新`)};
   return <>
-    <div className="moduleTop systemTop"><div><span>SYSTEM ENGINEERING DOMAINS</span><h2>厂务系统工程域总览</h2><p>将动力、洁净、水、排风、消防和自控按系统边界、接口、测试包与移交状态统一管理</p></div><div className="moduleActions"><button className="softButton" onClick={()=>notify("系统边界清单已导出")}>导出系统清单</button><button className="primaryButton" onClick={()=>notify("新系统边界已创建")}>＋ 新建系统边界</button></div></div>
+    <div className="moduleTop systemTop"><div><span>SYSTEM ENGINEERING DOMAINS</span><h2>厂务系统工程域总览</h2><p>将动力、洁净、水、排风、消防和自控按系统边界、接口、测试包与移交状态统一管理</p></div><div className="moduleActions"><button className="softButton" onClick={()=>downloadCsv("fabflow-system-list.csv",systems.map(x=>({系统编码:x.id,系统名称:x.name,英文名称:x.en,负责人:x.owner,总体进度:`${x.progress}%`,设计成熟度:`${x.design}%`,MC:`${x.mc}%`,RFC:`${x.rfc}%`,风险:x.risk}))) }>导出系统清单</button><button className="primaryButton" onClick={()=>openMasterData("systems")}>＋ 新建系统边界</button></div></div>
     <div className="systemDomainKpis"><section className="card"><span>系统域</span><b>6<small>个</small></b><p>34 个子系统 · 128 个系统包</p></section><section className="card"><span>设计成熟度</span><b>82<small>%</small></b><p>2 个域低于 G3 目标</p></section><section className="card"><span>接口事项</span><b>26<small>项</small></b><p className="amberText">9 项影响关键路径</p></section><section className="card"><span>测试包</span><b>173<small>包</small></b><p>通过率 94.2%</p></section><section className="card"><span>移交准备</span><b>38<small>%</small></b><p className="redText">A 类 Punch 6 项</p></section></div>
     <div className="systemTabs">{["系统总览","接口与联锁","系统准入","测试与移交"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}><i>{x==="系统总览"?"◎":x==="接口与联锁"?"◇":x==="系统准入"?"✓":"⌁"}</i><span>{x}</span><small>{x==="系统总览"?"6 domains":x==="接口与联锁"?"Interface Register":x==="系统准入"?"Readiness Gates":"Test & Handover"}</small></button>)}</div>
     {tab==="系统总览"&&<OverviewView systems={systems} selected={selected} setSelected={setSelected} current={current} notify={notify}/>} 
