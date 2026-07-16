@@ -300,6 +300,7 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
   const selectRow = (row: Row) => {
     const editable: Row = {};
     for (const field of definition.fields) editable[field.key] = field.type === "json" ? displayJson(row[field.key]) : row[field.key] ?? "";
+    window.sessionStorage.removeItem("fabflow:master-navigation");
     const id = String(row.id);
     setSelectedId(id); setDraft(editable); setBaseline(editable); setError("");
     void loadAttachments(id, row);

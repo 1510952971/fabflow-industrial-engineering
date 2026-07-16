@@ -61,6 +61,7 @@ export function parseCsv(text: string) {
 
 export function openMasterData(entity: string, query = "") {
   window.sessionStorage.setItem("fabflow:master-entity", entity);
+  window.sessionStorage.setItem("fabflow:master-navigation", "open");
   if (query) window.sessionStorage.setItem("fabflow:master-query", query);
   else window.sessionStorage.removeItem("fabflow:master-query");
   window.dispatchEvent(new CustomEvent("fabflow:master-data", { detail: { entity } }));

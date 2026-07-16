@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { downloadCsv, openMasterData } from "@/lib/client-actions";
 
 type Notify=(message:string)=>void;
@@ -33,6 +33,10 @@ export function SystemEngineeringPage({notify:parentNotify}:{notify:Notify}){
     parentNotify(message);
   };
   const [selected,setSelected]=useState("UTL"); const [tab,setTab]=useState("系统总览"); const [interfaceRows,setInterfaceRows]=useState(interfaces); const [checksState,setChecksState]=useState(checks);
+  useEffect(()=>{
+    const domain=window.sessionStorage.getItem("fabflow:system-domain");
+    if(domain && systems.some(item=>item.id===domain)){setSelected(domain);window.sessionStorage.removeItem("fabflow:system-domain");}
+  },[]);
   const current=systems.find(x=>x.id===selected)??systems[0];
   const closeInterface=(id:string)=>{setInterfaceRows(interfaceRows.map(x=>x[0]===id?[...x.slice(0,5),"已关闭",x[6]]:x));notify(`${id} 接口问题已关闭`)};
   const toggleCheck=(index:number)=>{setChecksState(checksState.map((x,i)=>i===index?[x[0],x[1],x[2]==="完成"?"进行中":"完成"]:x));notify(`${checksState[index][0]} 状态已更新`)};

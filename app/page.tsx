@@ -53,12 +53,12 @@ export default function Home() {
   const bolt = thickness <= 2 ? "M5 × 8" : thickness <= 4 ? "M5 × 12" : "M6 × 16";
   const total = useMemo(() => points * 4, [points]);
   const notify = (message:string) => {
-    setToast(message); window.setTimeout(()=>setToast(""), 1800);
-    if (/已创建|已新增|已保存|已更新|已关闭|已批准|已下发|已分派|已发送|已签发|已应用|已升级|已发起/.test(message)) {
-      void createWorkflowAction(message, "ui_workflow", { source: active }).catch(() => undefined);
+    const navigation=window.sessionStorage.getItem("fabflow:master-navigation"); const nextMessage=navigation==="open" && /已创建|已新增|已发起|已登记|已邀请|已召集/.test(message) ? "已打开对应新建表单" : message; if(navigation) window.sessionStorage.removeItem("fabflow:master-navigation"); setToast(nextMessage); window.setTimeout(()=>setToast(""), 1800);
+    if (/已创建|已新增|已保存|已更新|已关闭|已批准|已下发|已分派|已发送|已签发|已应用|已升级|已发起/.test(nextMessage) && nextMessage!=="已打开对应新建表单") {
+      void createWorkflowAction(nextMessage, "ui_workflow", { source: active }).catch(() => undefined);
     }
   };
-  const activate = (label:string, groupId?:string) => { setActive(label); if(groupId) setOpenGroups(x=>({...x,[groupId]:true})); };
+  const activate = (label:string, groupId?:string, context?:string) => { setActive(label); if(context && label==="系统工程域") window.sessionStorage.setItem("fabflow:system-domain",context); if(groupId) setOpenGroups(x=>({...x,[groupId]:true})); };
   const createBomItem = async (data:Record<string,unknown>, success:string) => {
     try {
       const response = await fetch("/api/master-data", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({entity:"bomItems",data:{projectId:"proj-fab2a",quantity:1,unit:"件",unitPriceCny:0,wastePct:5,sourceType:"calculation",status:"draft",...data}}) });
@@ -101,7 +101,7 @@ export default function Home() {
 
         <section className="systemOverview card">
           <div className="systemOverviewHead"><div><span>FAB FACILITY SYSTEMS</span><h2>厂务系统域总览</h2><p>6 个工程域 · 点击进入系统边界、接口、测试包与移交管理</p></div><button onClick={()=>setActive("系统工程域")}>进入系统工程域 <b>→</b></button></div>
-          <div className="systemDomainGrid">{systemDomains.map(domain=><button key={domain.id} className="systemDomain" onClick={()=>activate("系统工程域","systems")}><div className={`systemDomainIcon ${domain.color}`}>{domain.icon}</div><div className="systemDomainCopy"><div><b>{domain.name}</b><span>{domain.id}</span></div><small>{domain.en} · {domain.scope}</small><div className="systemDomainProgress"><i style={{width:`${domain.progress}%`}}/><em>{domain.progress}%</em></div></div><span className="systemDomainArrow">↗</span></button>)}</div>
+          <div className="systemDomainGrid">{systemDomains.map(domain=><button key={domain.id} className="systemDomain" onClick={()=>activate("系统工程域","systems",domain.id)}><div className={`systemDomainIcon ${domain.color}`}>{domain.icon}</div><div className="systemDomainCopy"><div><b>{domain.name}</b><span>{domain.id}</span></div><small>{domain.en} · {domain.scope}</small><div className="systemDomainProgress"><i style={{width:`${domain.progress}%`}}/><em>{domain.progress}%</em></div></div><span className="systemDomainArrow">↗</span></button>)}</div>
         </section>
 
         <section className="workflowStrip card"><div className="workflowHead"><div><span>PROJECT CONTROL PATH</span><h2>当前项目工作流</h2></div><p>按顺序推进，减少跨模块查找</p></div><div className="workflowSteps">{workflowSteps.map((step,index)=><button key={step.no} className={index===0?"current":""} onClick={()=>activate(step.target,step.group)}><i>{step.no}</i><span><b>{step.title}</b><small>{step.hint}</small></span><em>{step.state}</em>{index<workflowSteps.length-1&&<strong>→</strong>}</button>)}</div></section>

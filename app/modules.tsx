@@ -9,6 +9,7 @@ import { SystemEngineeringPage } from "./system-engineering";
 import { DataFoundationPage } from "./data-foundation";
 import { EquipmentFactoryPage } from "./equipment-factory";
 import { MasterDataPage } from "./master-data";
+import { MediaConditionsPage } from "./media-conditions";
 
 type Notify = (message: string) => void;
 type PointRow = { id: number; area: string; structure: string; thickness: number; points: number };
@@ -41,7 +42,8 @@ export function ModuleRouter({ active, notify }:{ active:string; notify:Notify }
   if (active === "数据底座与协同") return <DataFoundationPage notify={notify}/>;
   if (active === "设备工厂协同") return <EquipmentFactoryPage notify={notify}/>;
   if (active === "工程主数据录入") return <MasterDataPage notify={notify}/>;
-  if (active === "介质参数录入" || active === "结构紧固件计算") return <CalculationPage notify={notify}/>;
+  if (active === "介质参数录入") return <MediaConditionsPage notify={notify}/>;
+  if (active === "结构紧固件计算") return <CalculationPage notify={notify}/>;
   if (active === "管路接头选型" || active === "厂务大型设备库") return <LibraryPage notify={notify} equipment={active === "厂务大型设备库"}/>;
   if (active === "机台二次配批量算量") return <MachinePage notify={notify}/>;
   if (active === "合规校验中心") return <CompliancePage notify={notify}/>;
@@ -73,7 +75,7 @@ function CalculationPage({notify}:{notify:Notify}) {
   const addFasteners=async()=>{try{await createBomRecords([{itemCode:`BOLT-${bolt.replace(/\s/g,"")}`,itemName:"四组合螺栓副",specification:`${bolt} · ${material}`,quantity:Math.ceil(total*1.05),unit:"套",unitPriceCny:2.6,sourceType:"calculation",sourceId:"fastener-engine"}]);notify(`${bolt} 已写入 D1 项目 BOM`)}catch(error){notify(error instanceof Error?error.message:"BOM 写入失败")}};
   const applyLocking=async()=>{try{await createBomRecords([{itemCode:"WASHER-M5-TOOTH",itemName:"M5 带齿防松垫圈",specification:`${material} / ${bolt}`,quantity:Math.ceil(total*1.05),unit:"件",unitPriceCny:.8,sourceType:"calculation",sourceId:"fastener-locking"}]);notify("已应用带齿垫圈方案并写入 D1 BOM")}catch(error){notify(error instanceof Error?error.message:"防松方案写入失败")}};
   return <>
-    <PageTop eyebrow="FASTENER ENGINE" title="参数录入与结构紧固件计算" desc="基于板厚、结构形式与装配点位，实时计算规格、扭矩与采购数量" actions={<><button className="softButton" onClick={()=>pointFile.current?.click()}>导入点位表</button><input ref={pointFile} type="file" accept=".csv,text/csv" hidden onChange={event=>event.target.files?.[0]&&void importPoints(event.target.files[0])}/><button className="primaryButton" onClick={exportCalculation}>下载计算书</button></>}/>
+    <PageTop eyebrow="FASTENER ENGINE" title="结构紧固件计算" desc="仅处理板厚、结构形式、装配点位、螺栓规格、扭矩与采购数量计算" actions={<><button className="softButton" onClick={()=>pointFile.current?.click()}>导入点位表</button><input ref={pointFile} type="file" accept=".csv,text/csv" hidden onChange={event=>event.target.files?.[0]&&void importPoints(event.target.files[0])}/><button className="primaryButton" onClick={exportCalculation}>下载计算书</button></>}/>
     <div className="moduleGrid calcGrid">
       <section className="card moduleCard span8">
         <div className="moduleCardTitle"><div><i className="titleIcon bluebg">◇</i><span><b>装配参数</b><small>输入数据将自动触发计算</small></span></div><em>01 / INPUT</em></div>
