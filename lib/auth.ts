@@ -16,6 +16,9 @@ export type Permission =
   | "audit:read"
   | "integrations:read"
   | "integrations:manage"
+  | "signatures:read"
+  | "signatures:create"
+  | "signatures:manage"
   | "roles:manage";
 
 export type Principal = {
@@ -31,11 +34,11 @@ export const PUBLIC_DEMO_PROJECT_ID = "proj-fab2a";
 
 const permissionMap: Record<string, Permission[] | ["*"]> = {
   platform_admin: ["*"],
-  project_manager: ["data:read", "data:write", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create", "approvals:act", "audit:read", "integrations:read", "integrations:manage"],
-  system_owner: ["data:read", "data:write", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create", "approvals:act", "audit:read", "integrations:read"],
-  equipment_engineer: ["data:read", "data:write", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create", "integrations:read"],
-  reviewer: ["data:read", "equipment:read", "files:read", "approvals:read", "approvals:act", "audit:read", "integrations:read"],
-  viewer: ["data:read", "equipment:read", "files:read", "approvals:read"],
+  project_manager: ["data:read", "data:write", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create", "approvals:act", "audit:read", "integrations:read", "integrations:manage", "signatures:read", "signatures:create", "signatures:manage"],
+  system_owner: ["data:read", "data:write", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create", "approvals:act", "audit:read", "integrations:read", "signatures:read", "signatures:create"],
+  equipment_engineer: ["data:read", "data:write", "equipment:read", "equipment:validate", "files:read", "files:write", "approvals:read", "approvals:create", "integrations:read", "signatures:read", "signatures:create"],
+  reviewer: ["data:read", "equipment:read", "files:read", "approvals:read", "approvals:act", "audit:read", "integrations:read", "signatures:read"],
+  viewer: ["data:read", "equipment:read", "files:read", "approvals:read", "signatures:read"],
   public_viewer: ["data:read", "equipment:read"],
 };
 
@@ -95,7 +98,10 @@ export async function getPrincipal(request: Request): Promise<Principal> {
 }
 
 export function hasPermission(principal: Principal, permission: Permission) {
-  return principal.roles.some((role) => permissionMap[role]?.includes("*") || permissionMap[role]?.includes(permission));
+  return principal.roles.some((role) => {
+    const allowed = permissionMap[role] as readonly string[] | undefined;
+    return allowed?.includes("*") || allowed?.includes(permission);
+  });
 }
 
 export function canAccessProject(principal: Principal, projectId: string | null | undefined) {

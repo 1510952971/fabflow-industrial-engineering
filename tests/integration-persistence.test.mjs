@@ -16,7 +16,7 @@ test("file evidence supports versions, downloads, signatures and archive protect
 });
 
 test("external event consumers cover ERP, QMS, schedule, equipment vendors and operations", async () => {
-  const route = await readFile("app/api/integrations/events/route.ts", "utf8");
+  const route = (await readFile("app/api/integrations/events/route.ts", "utf8")) + (await readFile("lib/integration-processing.ts", "utf8"));
   for (const eventType of [
     "erp.po.upsert",
     "qms.test_pack.upsert",
@@ -27,9 +27,7 @@ test("external event consumers cover ERP, QMS, schedule, equipment vendors and o
   ]) {
     assert.match(route, new RegExp(eventType.replaceAll(".", "\\.")));
   }
-  assert.match(route, /body\.eventType\.startsWith\("bms\."\)/);
-  assert.match(route, /body\.eventType\.startsWith\("epms\."\)/);
-  assert.match(route, /body\.eventType\.startsWith\("scada\."\)/);
+  assert.match(route, /\^\(bms\|epms\|scada\)/);
   assert.match(route, /idempotency-key/);
   assert.match(route, /CONNECTOR_NOT_ENABLED/);
   assert.match(route, /retryCount >= 5/);
@@ -37,12 +35,13 @@ test("external event consumers cover ERP, QMS, schedule, equipment vendors and o
 });
 
 test("the integration console exposes every requested enterprise source without fake health", async () => {
-  const source = await readFile("app/data-foundation.tsx", "utf8");
+  const source = await readFile("app/integration-console.tsx", "utf8");
   for (const id of ["ERP", "SCHED", "QMS", "VENDOR", "BMS", "EPMS", "SCADA"]) {
     assert.match(source, new RegExp(`id: "${id}"`));
   }
-  assert.match(source, /配置连接器/);
-  assert.match(source, /密钥仍由部署环境安全绑定/);
+  assert.match(source, /保存配置/);
+  assert.match(source, /部署环境绑定/);
+  assert.match(source, /真实连接检查通过/);
   assert.doesNotMatch(source, /status: "健康"[^\n]+未连接/);
 });
 

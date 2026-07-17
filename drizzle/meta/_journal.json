@@ -43,6 +43,20 @@
       "when": 1784192282794,
       "tag": "0005_confused_wolfsbane",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1784250383065,
+      "tag": "0006_optimal_squirrel_girl",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1784251057489,
+      "tag": "0007_classy_the_spike",
+      "breakpoints": true
     }
   ]
 }

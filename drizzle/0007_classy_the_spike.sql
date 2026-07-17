@@ -1,0 +1,1 @@
+ALTER TABLE `signature_providers` ADD `healthcheck_path` text DEFAULT '/health' NOT NULL;
