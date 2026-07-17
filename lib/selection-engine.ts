@@ -35,6 +35,7 @@ type Component = {
 };
 
 type Material = {
+  manufacturer: string;
   code: string;
   grade: string;
   surfaceFinish: string;

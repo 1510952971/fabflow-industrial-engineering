@@ -13,6 +13,7 @@ import { MediaConditionsPage } from "./media-conditions";
 import { PipeSelectionPage } from "./pipe-selection";
 import { FacilityEquipmentPage } from "./facility-equipment";
 import { createBomRecords } from "@/lib/bom-actions";
+import { getCurrentProjectId } from "@/lib/project-context";
 import { facilitySystemClass, getFacilitySystem } from "@/lib/facility-systems";
 
 type Notify = (message: string) => void;
@@ -137,8 +138,9 @@ function BomPage({notify}:{notify:Notify}) {
   const toggleAll=()=>setSelected(selected.length===shown.length?[]:shown.map(r=>r.id));
   const exportBom=()=>{downloadCsv(`fabflow-bom-${Date.now()}.csv`,["物料编码","物料名称","规格","设计数量","采购数量","单位","单价(CNY)","小计(CNY)"],shown.map(r=>[r.itemCode,r.itemName,r.specification,r.quantity,Math.ceil(r.quantity*(1+margin/100)),r.unit,r.unitPriceCny,Math.ceil(r.quantity*(1+margin/100))*r.unitPriceCny]));notify("BOM CSV 已下载，可直接用 Excel 打开")};
   const copyCad=async()=>{try{await copyText(shown.map(r=>`${r.itemCode}\t${r.itemName}\t${r.specification}\t${Math.ceil(r.quantity*(1+margin/100))} ${r.unit}`).join("\n"));notify("CAD 标注文本已复制到剪贴板")}catch(error){notify(error instanceof Error?error.message:"复制失败")}};
+  const submitProjectRelease=async()=>{const projectId=getCurrentProjectId();const response=await fetch("/api/release-gates",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({projectId,gateType:"project_release",entityType:"projects",entityId:projectId,revision:"A",title:"项目设计、接口、BOM 与采购发布冻结"})});const payload=await response.json();notify(response.ok?"项目发布冻结审批已提交；审批完成前采购订单保持拦截":payload.error||"发布冻结审批提交失败")};
   return <>
-    <PageTop eyebrow="BILL OF MATERIALS" title="BOM 成本报表" desc="统一管理物料数量、采购余量与成本分项，支持多格式专业交付" actions={<><button className="exportButton" onClick={()=>void copyCad()}>复制 CAD 文本</button><button className="exportButton" onClick={()=>downloadText(`fabflow-bom-note-${Date.now()}.txt`,`FabFlow 项目 BOM 设计说明\n物料条目：${shown.length}\n采购余量：${margin}%\n成本合计：CNY ${sum.toFixed(2)}\n导出时间：${new Date().toISOString()}`)}>生成设计说明</button><button className="primaryButton" onClick={exportBom}>导出 Excel / CSV</button></>}/>
+    <PageTop eyebrow="BILL OF MATERIALS" title="BOM 成本报表" desc="统一管理物料数量、采购余量与成本分项，支持多格式专业交付" actions={<><button className="exportButton" onClick={()=>void submitProjectRelease()}>提交项目发布审批</button><button className="exportButton" onClick={()=>void copyCad()}>复制 CAD 文本</button><button className="exportButton" onClick={()=>downloadText(`fabflow-bom-note-${Date.now()}.txt`,`FabFlow 项目 BOM 设计说明\n物料条目：${shown.length}\n采购余量：${margin}%\n成本合计：CNY ${sum.toFixed(2)}\n导出时间：${new Date().toISOString()}`)}>生成设计说明</button><button className="primaryButton" onClick={exportBom}>导出 Excel / CSV</button></>}/>
     {error&&<div className="dataBackendState"><i>!</i><span><b>BOM 未能读取 D1</b><small>{error}</small></span></div>}
     <div className="bomKpis"><section className="card"><span>物料条目</span><b>{rows.length}<small>项</small></b><p>当前项目已持久化 BOM</p></section><section className="card"><span>物料总数量</span><b>{totalQuantity}<small>件</small></b><p>已含 {margin}% 采购余量</p></section><section className="card"><span>预估材料成本</span><b>¥ {sum.toLocaleString()}</b><p className="greenText">根据当前单价实时计算</p></section><section className="card costMini"><div className="miniDonut"/><span>成本构成</span><p>按系统与物料分类汇总</p></section></div>
     <section className="card marginControl"><div><span>采购余量</span><b>{margin}%</b><small>建议范围 5% — 15%，数量与成本实时联动</small></div><input type="range" min="5" max="15" value={margin} onChange={e=>setMargin(+e.target.value)}/><div className="rangeTicks"><span>5%</span><span>10%</span><span>15%</span></div></section>

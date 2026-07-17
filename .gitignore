@@ -41,3 +41,8 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+*.tsbuildinfo
+
+# local engineering source documents and generated release bundles
+/材料型录/
+/fabflow-*.tar.gz

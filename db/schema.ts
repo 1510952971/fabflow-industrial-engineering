@@ -16,6 +16,19 @@ export const projects = sqliteTable("projects", {
   updatedAt: updatedAt(),
 }, (table) => [uniqueIndex("projects_code_uq").on(table.code)]);
 
+export const projectConfigurations = sqliteTable("project_configurations", {
+  projectId: text("project_id").primaryKey().references(() => projects.id),
+  templateCode: text("template_code").notNull().default("FAB_FULL"),
+  numberPrefix: text("number_prefix").notNull(),
+  defaultWastePct: real("default_waste_pct").notNull().default(5),
+  systemTemplateJson: text("system_template_json").notNull().default("[]"),
+  fileCategoriesJson: text("file_categories_json").notNull().default("[]"),
+  workflowStatus: text("workflow_status").notNull().default("initialized"),
+  createdBy: text("created_by").notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 export const systems = sqliteTable("systems", {
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projects.id),
@@ -294,6 +307,242 @@ export const equipmentPorts = sqliteTable("equipment_ports", {
   index("equipment_ports_model_idx").on(table.equipmentModelId),
 ]);
 
+/** Extensible manufacturer product catalog. Categories and parameter
+ * definitions are data, not hard-coded form columns, so every FAB discipline
+ * can add its own product families and engineering attributes. */
+export const productCategories = sqliteTable("product_categories", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  parentCode: text("parent_code"),
+  discipline: text("discipline").notNull(),
+  applicableSystemsJson: text("applicable_systems_json").notNull().default("[]"),
+  icon: text("icon").notNull().default("◇"),
+  description: text("description").notNull().default(""),
+  status: text("status").notNull().default("active"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("product_categories_code_uq").on(table.code),
+  index("product_categories_discipline_idx").on(table.discipline),
+]);
+
+export const productParameterDefinitions = sqliteTable("product_parameter_definitions", {
+  id: text("id").primaryKey(),
+  categoryId: text("category_id").notNull().references(() => productCategories.id),
+  key: text("key").notNull(),
+  label: text("label").notNull(),
+  groupName: text("group_name").notNull().default("详细规格"),
+  dataType: text("data_type").notNull().default("text"),
+  unit: text("unit"),
+  required: integer("required", { mode: "boolean" }).notNull().default(false),
+  comparable: integer("comparable", { mode: "boolean" }).notNull().default(true),
+  optionsJson: text("options_json").notNull().default("[]"),
+  validationJson: text("validation_json").notNull().default("{}"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  helpText: text("help_text").notNull().default(""),
+  status: text("status").notNull().default("active"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("product_parameter_definitions_category_key_uq").on(table.categoryId, table.key),
+  index("product_parameter_definitions_category_idx").on(table.categoryId, table.sortOrder),
+]);
+
+export const catalogProducts = sqliteTable("catalog_products", {
+  id: text("id").primaryKey(),
+  categoryId: text("category_id").notNull().references(() => productCategories.id),
+  factoryId: text("factory_id").references(() => equipmentFactories.id),
+  manufacturer: text("manufacturer").notNull(),
+  brand: text("brand").notNull(),
+  productCode: text("product_code").notNull(),
+  productName: text("product_name").notNull(),
+  series: text("series").notNull().default(""),
+  model: text("model").notNull(),
+  description: text("description").notNull().default(""),
+  country: text("country").notNull().default(""),
+  lifecycleStatus: text("lifecycle_status").notNull().default("active"),
+  applicableSystemsJson: text("applicable_systems_json").notNull().default("[]"),
+  mediaJson: text("media_json").notNull().default("[]"),
+  imagesJson: text("images_json").notNull().default("[]"),
+  minPressureMpa: real("min_pressure_mpa"),
+  maxPressureMpa: real("max_pressure_mpa"),
+  minTemperatureC: real("min_temperature_c"),
+  maxTemperatureC: real("max_temperature_c"),
+  nominalSize: text("nominal_size"),
+  connectionStandard: text("connection_standard"),
+  wettedMaterialsJson: text("wetted_materials_json").notNull().default("[]"),
+  surfaceFinish: text("surface_finish"),
+  cleanlinessGrade: text("cleanliness_grade"),
+  maxFlow: real("max_flow"),
+  flowUnit: text("flow_unit"),
+  supplyVoltage: text("supply_voltage"),
+  signalProtocol: text("signal_protocol"),
+  ingressProtection: text("ingress_protection"),
+  hazardousAreaRating: text("hazardous_area_rating"),
+  certificationsJson: text("certifications_json").notNull().default("[]"),
+  standardsJson: text("standards_json").notNull().default("[]"),
+  specificationsJson: text("specifications_json").notNull().default("{}"),
+  sourceDocument: text("source_document"),
+  sourceUrl: text("source_url"),
+  sourcePage: text("source_page"),
+  revision: text("revision").notNull().default("A"),
+  status: text("status").notNull().default("draft"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("catalog_products_brand_code_uq").on(table.brand, table.productCode),
+  index("catalog_products_category_idx").on(table.categoryId),
+  index("catalog_products_model_idx").on(table.model),
+  index("catalog_products_status_idx").on(table.status),
+]);
+
+export const productVariants = sqliteTable("product_variants", {
+  id: text("id").primaryKey(),
+  productId: text("product_id").notNull().references(() => catalogProducts.id),
+  sku: text("sku").notNull(),
+  optionCode: text("option_code").notNull().default(""),
+  name: text("name").notNull(),
+  specificationsJson: text("specifications_json").notNull().default("{}"),
+  dimensionsJson: text("dimensions_json").notNull().default("{}"),
+  weightKg: real("weight_kg"),
+  leadTimeWeeks: integer("lead_time_weeks"),
+  unitPriceCny: real("unit_price_cny"),
+  status: text("status").notNull().default("active"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("product_variants_product_sku_uq").on(table.productId, table.sku),
+  index("product_variants_product_idx").on(table.productId),
+]);
+
+export const productApplications = sqliteTable("product_applications", {
+  id: text("id").primaryKey(),
+  productId: text("product_id").notNull().references(() => catalogProducts.id),
+  systemCode: text("system_code").notNull(),
+  service: text("service").notNull(),
+  medium: text("medium").notNull().default(""),
+  suitability: text("suitability").notNull().default("approved"),
+  limitations: text("limitations").notNull().default(""),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("product_applications_product_system_service_uq").on(table.productId, table.systemCode, table.service),
+  index("product_applications_system_idx").on(table.systemCode, table.suitability),
+]);
+
+/** Project-specific requirements extracted from an uploaded technical specification.
+ * Catalog products remain global and are referenced by the selected product/variant IDs. */
+export const projectProductRequirements = sqliteTable("project_product_requirements", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  requirementCode: text("requirement_code").notNull(),
+  title: text("title").notNull(),
+  systemCode: text("system_code").notNull(),
+  categoryId: text("category_id").notNull().references(() => productCategories.id),
+  attachmentId: text("attachment_id"),
+  sourceFileName: text("source_file_name").notNull().default(""),
+  sourceRevision: text("source_revision").notNull().default("A"),
+  medium: text("medium").notNull().default(""),
+  designPressureMpa: real("design_pressure_mpa"),
+  designTemperatureC: real("design_temperature_c"),
+  nominalSize: text("nominal_size").notNull().default(""),
+  connectionStandard: text("connection_standard").notNull().default(""),
+  requiredMaterialsJson: text("required_materials_json").notNull().default("[]"),
+  requiredCertificationsJson: text("required_certifications_json").notNull().default("[]"),
+  requiredStandardsJson: text("required_standards_json").notNull().default("[]"),
+  requiredBrandsJson: text("required_brands_json").notNull().default("[]"),
+  requiredSpecificationsJson: text("required_specifications_json").notNull().default("{}"),
+  notes: text("notes").notNull().default(""),
+  status: text("status").notNull().default("draft"),
+  selectedProductId: text("selected_product_id").references(() => catalogProducts.id),
+  selectedVariantId: text("selected_variant_id").references(() => productVariants.id),
+  selectionStatus: text("selection_status").notNull().default("unmatched"),
+  selectedBy: text("selected_by"),
+  selectedAt: text("selected_at"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("project_product_requirements_project_code_uq").on(table.projectId, table.requirementCode),
+  index("project_product_requirements_project_status_idx").on(table.projectId, table.status),
+  index("project_product_requirements_category_idx").on(table.categoryId),
+]);
+
+export const catalogSelectionRuns = sqliteTable("catalog_selection_runs", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  requirementId: text("requirement_id").notNull().references(() => projectProductRequirements.id),
+  status: text("status").notNull(),
+  matchedCount: integer("matched_count").notNull().default(0),
+  blockedCount: integer("blocked_count").notNull().default(0),
+  submittedBy: text("submitted_by").notNull(),
+  inputJson: text("input_json").notNull(),
+  createdAt: createdAt(),
+}, (table) => [
+  index("catalog_selection_runs_requirement_idx").on(table.requirementId, table.createdAt),
+  index("catalog_selection_runs_project_idx").on(table.projectId, table.createdAt),
+]);
+
+export const catalogSelectionResults = sqliteTable("catalog_selection_results", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => catalogSelectionRuns.id),
+  productId: text("product_id").notNull().references(() => catalogProducts.id),
+  score: integer("score").notNull(),
+  status: text("status").notNull(),
+  checksJson: text("checks_json").notNull(),
+  createdAt: createdAt(),
+}, (table) => [
+  uniqueIndex("catalog_selection_results_run_product_uq").on(table.runId, table.productId),
+  index("catalog_selection_results_run_idx").on(table.runId, table.score),
+]);
+
+export const technicalSpecExtractions = sqliteTable("technical_spec_extractions", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  requirementId: text("requirement_id").notNull().references(() => projectProductRequirements.id),
+  attachmentId: text("attachment_id").notNull(),
+  fileName: text("file_name").notNull(),
+  parserType: text("parser_type").notNull(),
+  pageCount: integer("page_count").notNull().default(0),
+  extractedJson: text("extracted_json").notNull(),
+  confidenceJson: text("confidence_json").notNull().default("{}"),
+  textExcerpt: text("text_excerpt").notNull().default(""),
+  status: text("status").notNull().default("needs_review"),
+  confirmedBy: text("confirmed_by"),
+  confirmedAt: text("confirmed_at"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  index("technical_spec_extractions_requirement_idx").on(table.requirementId, table.createdAt),
+  index("technical_spec_extractions_project_status_idx").on(table.projectId, table.status),
+]);
+
+export const catalogCandidates = sqliteTable("catalog_candidates", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  requirementId: text("requirement_id").notNull().references(() => projectProductRequirements.id),
+  candidateCode: text("candidate_code").notNull(),
+  proposedProductName: text("proposed_product_name").notNull(),
+  categoryId: text("category_id").notNull().references(() => productCategories.id),
+  manufacturer: text("manufacturer").notNull().default(""),
+  brand: text("brand").notNull().default(""),
+  model: text("model").notNull().default(""),
+  supplier: text("supplier").notNull().default(""),
+  rfqNumber: text("rfq_number").notNull().default(""),
+  technicalQueryNumber: text("technical_query_number").notNull().default(""),
+  requirementSnapshotJson: text("requirement_snapshot_json").notNull(),
+  vendorDataJson: text("vendor_data_json").notNull().default("{}"),
+  promotedProductId: text("promoted_product_id").references(() => catalogProducts.id),
+  status: text("status").notNull().default("draft"),
+  assignedTo: text("assigned_to"),
+  createdBy: text("created_by").notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("catalog_candidates_project_code_uq").on(table.projectId, table.candidateCode),
+  index("catalog_candidates_requirement_idx").on(table.requirementId, table.status),
+]);
+
 export const materialCompatibility = sqliteTable("material_compatibility", {
   id: text("id").primaryKey(),
   medium: text("medium").notNull(),
@@ -384,6 +633,25 @@ export const selectionResults = sqliteTable("selection_results", {
   createdAt: createdAt(),
 }, (table) => [index("selection_results_run_idx").on(table.runId)]);
 
+export const equipmentMaterialSelections = sqliteTable("equipment_material_selections", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  equipmentModelId: text("equipment_model_id").notNull().references(() => equipmentModels.id),
+  componentId: text("component_id").notNull().references(() => equipmentComponents.id),
+  materialId: text("material_id").notNull().references(() => materials.id),
+  runId: text("run_id").notNull().references(() => selectionRuns.id),
+  quantity: real("quantity").notNull().default(1),
+  status: text("status").notNull(),
+  score: integer("score").notNull(),
+  selectedBy: text("selected_by").notNull(),
+  selectedAt: text("selected_at").notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("equipment_material_selections_project_component_uq").on(table.projectId, table.componentId),
+  index("equipment_material_selections_model_idx").on(table.projectId, table.equipmentModelId, table.status),
+]);
+
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull(),
@@ -393,6 +661,37 @@ export const users = sqliteTable("users", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, (table) => [uniqueIndex("users_email_uq").on(table.email)]);
+
+/** Password material is kept separate from the user directory. Passwords are
+ * PBKDF2 hashes; raw passwords are never persisted. */
+export const authCredentials = sqliteTable("auth_credentials", {
+  userId: text("user_id").primaryKey().references(() => users.id),
+  passwordHash: text("password_hash").notNull(),
+  passwordSalt: text("password_salt").notNull(),
+  iterations: integer("iterations").notNull(),
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: text("locked_until"),
+  passwordChangedAt: text("password_changed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Opaque browser sessions. Only the SHA-256 token hash is stored in D1. */
+export const authSessions = sqliteTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  tokenHash: text("token_hash").notNull(),
+  status: text("status").notNull().default("active"),
+  expiresAt: text("expires_at").notNull(),
+  lastSeenAt: text("last_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  ipHash: text("ip_hash"),
+  userAgent: text("user_agent"),
+  createdAt: createdAt(),
+}, (table) => [
+  uniqueIndex("auth_sessions_token_hash_uq").on(table.tokenHash),
+  index("auth_sessions_user_status_idx").on(table.userId, table.status),
+  index("auth_sessions_expiry_idx").on(table.expiresAt),
+]);
 
 export const userRoles = sqliteTable("user_roles", {
   id: text("id").primaryKey(),
@@ -426,6 +725,27 @@ export const approvalRequests = sqliteTable("approval_requests", {
 }, (table) => [
   index("approval_requests_project_status_idx").on(table.projectId, table.status),
   index("approval_requests_entity_idx").on(table.entityType, table.entityId),
+]);
+
+export const releaseGates = sqliteTable("release_gates", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  gateType: text("gate_type").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  revision: text("revision").notNull().default("A"),
+  approvalRequestId: text("approval_request_id").references(() => approvalRequests.id),
+  validationSnapshotJson: text("validation_snapshot_json").notNull(),
+  status: text("status").notNull().default("draft"),
+  submittedBy: text("submitted_by").notNull(),
+  frozenBy: text("frozen_by"),
+  frozenAt: text("frozen_at"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("release_gates_entity_revision_uq").on(table.projectId, table.gateType, table.entityType, table.entityId, table.revision),
+  index("release_gates_project_status_idx").on(table.projectId, table.status),
+  index("release_gates_approval_idx").on(table.approvalRequestId),
 ]);
 
 export const attachments = sqliteTable("attachments", {

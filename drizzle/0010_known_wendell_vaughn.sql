@@ -1,0 +1,1 @@
+ALTER TABLE `catalog_products` ADD `images_json` text DEFAULT '[]' NOT NULL;

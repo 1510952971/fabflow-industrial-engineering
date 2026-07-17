@@ -34,6 +34,8 @@ const statusOptions = ["draft", "active", "released", "approved", "design", "ope
 const projectField: Field = { key: "projectId", label: "所属项目", type: "relation", relation: "projects", required: true };
 const systemField: Field = { key: "systemId", label: "所属系统", type: "relation", relation: "systems" };
 const modelField: Field = { key: "equipmentModelId", label: "设备型号", type: "relation", relation: "equipmentModels", required: true };
+const categoryField: Field = { key: "categoryId", label: "产品分类", type: "relation", relation: "productCategories", required: true };
+const productField: Field = { key: "productId", label: "型录产品", type: "relation", relation: "catalogProducts", required: true };
 
 const definitions: Record<string, EntityDefinition> = {
   projects: {
@@ -118,7 +120,80 @@ const definitions: Record<string, EntityDefinition> = {
       { key: "pressureRatingMpa", label: "额定压力 MPa", type: "number", required: true }, { key: "temperatureRatingC", label: "额定温度 °C", type: "number", required: true },
       { key: "faceToFaceMm", label: "接口基准距离 mm", type: "number" }],
   },
-  technicalRules: {
+  productCategories: {
+    label: "产品分类", plural: "产品分类模板", icon: "▦", description: "按产品族定义适用系统和专用规格字段", title: ["code", "name"], subtitle: ["discipline", "status"],
+    defaults: { applicableSystemsJson: "", icon: "◇", status: "active" },
+    fields: [{ key: "code", label: "分类编码", required: true }, { key: "name", label: "分类名称", required: true, wide: true },
+      { key: "parentCode", label: "上级分类编码" }, { key: "discipline", label: "责任专业", required: true },
+      { key: "applicableSystemsJson", label: "适用系统编码", type: "json", required: true, wide: true, help: "例如 SGAS, BSGS, CDS, UPW, CR, FIRE, CTRL" },
+      { key: "icon", label: "图标" }, { key: "description", label: "分类说明", type: "textarea", wide: true }, { key: "status", label: "状态", type: "select", options: statusOptions }],
+  },
+  productParameterDefinitions: {
+    label: "规格字段", plural: "动态规格字段", icon: "≡", description: "管理员为每类产品配置字段、单位、必填和校验范围", title: ["label", "key"], subtitle: ["groupName", "dataType", "unit"],
+    defaults: { groupName: "详细规格", dataType: "text", required: false, comparable: true, optionsJson: "", validationJson: "{}", sortOrder: 10, status: "active" },
+    fields: [categoryField, { key: "key", label: "字段键（英文）", required: true }, { key: "label", label: "字段名称", required: true },
+      { key: "groupName", label: "参数分组", required: true }, { key: "dataType", label: "数据类型", type: "select", options: ["text", "number", "boolean", "select"], required: true },
+      { key: "unit", label: "单位" }, { key: "required", label: "必填", type: "boolean" }, { key: "comparable", label: "参与对比", type: "boolean" },
+      { key: "optionsJson", label: "可选值", type: "json", wide: true, help: "select 类型填写可选值" }, { key: "validationJson", label: "校验规则 JSON", type: "json", wide: true, help: '例如 {"min":0,"max":10}' },
+      { key: "sortOrder", label: "排序", type: "number", required: true }, { key: "helpText", label: "填写提示", wide: true }, { key: "status", label: "状态", type: "select", options: statusOptions }],
+  },
+  catalogProducts: {
+    label: "型录产品", plural: "设备材料产品库", icon: "◈", description: "品牌、型号、工况、接口、材料、认证、详细规格和来源追溯", title: ["brand", "model", "productName"], subtitle: ["productCode", "connectionStandard", "status"],
+    defaults: { applicableSystemsJson: "", mediaJson: "", imagesJson: "", wettedMaterialsJson: "", certificationsJson: "", standardsJson: "", specificationsJson: "{}", lifecycleStatus: "active", revision: "A", status: "draft" },
+    fields: [categoryField, { key: "factoryId", label: "关联设备工厂", type: "relation", relation: "equipmentFactories" },
+      { key: "manufacturer", label: "制造商", required: true }, { key: "brand", label: "品牌", required: true }, { key: "productCode", label: "产品编码 / 料号", required: true },
+      { key: "productName", label: "产品名称", required: true, wide: true }, { key: "series", label: "系列" }, { key: "model", label: "完整型号", required: true, wide: true },
+      { key: "description", label: "用途与说明", type: "textarea", wide: true }, { key: "country", label: "产地" }, { key: "lifecycleStatus", label: "生命周期", type: "select", options: ["active", "new", "legacy", "discontinued"] },
+      { key: "applicableSystemsJson", label: "适用系统", type: "json", required: true, wide: true }, { key: "imagesJson", label: "产品图片附件 ID", type: "json", wide: true }, { key: "mediaJson", label: "适用介质", type: "json", wide: true },
+      { key: "minPressureMpa", label: "最低压力 MPa", type: "number" }, { key: "maxPressureMpa", label: "最高压力 MPa", type: "number" },
+      { key: "minTemperatureC", label: "最低温度 °C", type: "number" }, { key: "maxTemperatureC", label: "最高温度 °C", type: "number" },
+      { key: "nominalSize", label: "公称尺寸 / 规格" }, { key: "connectionStandard", label: "连接 / 接口标准" },
+      { key: "wettedMaterialsJson", label: "接液 / 内部材质", type: "json", wide: true }, { key: "surfaceFinish", label: "表面处理 / 粗糙度" }, { key: "cleanlinessGrade", label: "洁净等级" },
+      { key: "maxFlow", label: "最大流量", type: "number" }, { key: "flowUnit", label: "流量单位" }, { key: "supplyVoltage", label: "供电" }, { key: "signalProtocol", label: "信号 / 协议" },
+      { key: "ingressProtection", label: "防护等级" }, { key: "hazardousAreaRating", label: "防爆等级" }, { key: "certificationsJson", label: "认证", type: "json", wide: true },
+      { key: "standardsJson", label: "符合标准", type: "json", wide: true }, { key: "specificationsJson", label: "分类详细规格 JSON", type: "json", required: true, wide: true, help: "建议在“厂务大型设备库”使用动态表单录入" },
+      { key: "sourceDocument", label: "来源型录 / 文件", wide: true }, { key: "sourceUrl", label: "厂家正式资料 URL", wide: true }, { key: "sourcePage", label: "页码 / 条款" },
+      { key: "revision", label: "数据版本", required: true }, { key: "status", label: "审核状态", type: "select", options: ["draft", "pending_review", "approved", "conditional", "rejected", "archived"] }],
+  },
+  productVariants: {
+    label: "型号变体", plural: "SKU 与选配编码", icon: "⑂", description: "同一产品系列的尺寸、接口、选配编码、尺寸重量、交期和价格", title: ["sku", "name"], subtitle: ["optionCode", "leadTimeWeeks", "status"],
+    defaults: { specificationsJson: "{}", dimensionsJson: "{}", status: "active" },
+    fields: [productField, { key: "sku", label: "SKU / 订货号", required: true }, { key: "optionCode", label: "选配编码" }, { key: "name", label: "变体名称", required: true, wide: true },
+      { key: "specificationsJson", label: "差异规格 JSON", type: "json", required: true, wide: true }, { key: "dimensionsJson", label: "尺寸 JSON", type: "json", required: true, wide: true },
+      { key: "weightKg", label: "重量 kg", type: "number" }, { key: "leadTimeWeeks", label: "交期 周", type: "number" }, { key: "unitPriceCny", label: "参考单价 CNY", type: "number" },
+      { key: "status", label: "状态", type: "select", options: statusOptions }],
+  },
+  productApplications: {
+    label: "系统适用性", plural: "系统 / 介质适用性", icon: "✓", description: "明确产品在哪个系统、服务和介质下允许、有条件或禁用", title: ["systemCode", "service"], subtitle: ["medium", "suitability"],
+    defaults: { suitability: "approved" },
+    fields: [productField, { key: "systemCode", label: "系统编码", required: true }, { key: "service", label: "服务 / 用途", required: true, wide: true },
+      { key: "medium", label: "介质" }, { key: "suitability", label: "适用结论", type: "select", options: ["approved", "conditional", "not_recommended", "prohibited"], required: true },
+      { key: "limitations", label: "限制与备注", type: "textarea", wide: true }],
+  },
+  projectProductRequirements: {
+    label: "项目选型要求", plural: "项目技术规格选型", icon: "⌁", description: "项目上传技术规格书后形成的结构化选型条件；产品仍引用全局型录，不复制到项目", title: ["requirementCode", "title"], subtitle: ["systemCode", "sourceFileName", "selectionStatus"],
+    defaults: { sourceRevision: "A", requiredMaterialsJson: "", requiredCertificationsJson: "", requiredStandardsJson: "", requiredBrandsJson: "", requiredSpecificationsJson: "{}", status: "draft", selectionStatus: "unmatched" },
+    fields: [projectField, { key: "requirementCode", label: "需求编号", required: true }, { key: "title", label: "设备 / 材料名称", required: true, wide: true },
+      { key: "systemCode", label: "系统编码", required: true }, categoryField, { key: "attachmentId", label: "技术规格书附件 ID", wide: true },
+      { key: "sourceFileName", label: "技术规格书文件名", wide: true }, { key: "sourceRevision", label: "规格书版本", required: true }, { key: "medium", label: "介质" },
+      { key: "designPressureMpa", label: "设计压力 MPa", type: "number" }, { key: "designTemperatureC", label: "设计温度 °C", type: "number" },
+      { key: "nominalSize", label: "公称尺寸" }, { key: "connectionStandard", label: "接口标准" },
+      { key: "requiredMaterialsJson", label: "要求材质", type: "json", wide: true }, { key: "requiredCertificationsJson", label: "要求认证", type: "json", wide: true },
+      { key: "requiredStandardsJson", label: "要求标准", type: "json", wide: true }, { key: "requiredBrandsJson", label: "准入品牌", type: "json", wide: true },
+      { key: "requiredSpecificationsJson", label: "分类专用要求 JSON", type: "json", wide: true, help: '例如 {"flow":{"min":100},"ipRating":{"equals":"IP65"}}' },
+      { key: "notes", label: "条款与补充说明", type: "textarea", wide: true }, { key: "status", label: "要求状态", type: "select", options: ["draft", "active", "frozen", "selected", "closed"] },
+      { key: "selectionStatus", label: "匹配状态", type: "select", options: ["unmatched", "matched", "selected", "blocked"] }],
+  },
+  catalogCandidates: {
+    label: "候选产品", plural: "询价 / TQ / 品牌报审候选", icon: "?", description: "项目规格书未命中全局型录时形成的候选记录；完成供应商资料、技术澄清和品牌报审后才能转入全局型录", title: ["candidateCode", "proposedProductName"], subtitle: ["brand", "model", "status"],
+    defaults: { manufacturer: "", brand: "", model: "", supplier: "", rfqNumber: "", technicalQueryNumber: "", vendorDataJson: "{}", status: "rfq_preparation", assignedTo: "", createdBy: "" },
+    fields: [projectField, { key: "requirementId", label: "项目选型要求 ID", required: true, wide: true }, { key: "candidateCode", label: "候选编号", required: true },
+      { key: "proposedProductName", label: "候选产品名称", required: true, wide: true }, categoryField, { key: "manufacturer", label: "制造商" }, { key: "brand", label: "品牌" }, { key: "model", label: "型号" },
+      { key: "supplier", label: "供应商" }, { key: "rfqNumber", label: "询价单号" }, { key: "technicalQueryNumber", label: "TQ 技术澄清号" },
+      { key: "requirementSnapshotJson", label: "规格要求快照", type: "json", wide: true, required: true }, { key: "vendorDataJson", label: "供应商数据", type: "json", wide: true },
+      { key: "promotedProductId", label: "转入型录产品 ID", wide: true }, { key: "status", label: "候选状态", type: "select", options: ["rfq_preparation", "vendor_data_received", "technical_review", "brand_approval", "ready_for_catalog", "promoted", "rejected"] },
+      { key: "assignedTo", label: "负责人" }, { key: "createdBy", label: "创建人", required: true }],
+  },  technicalRules: {
     label: "技术规则", plural: "技术文件规则", icon: "▤", description: "从招标技术文件形成的结构化选型规则", title: ["ruleCode", "serviceName"], subtitle: ["packageCode", "systemCode", "status"],
     defaults: { mediumCodesJson: "", nominalSizesJson: "", flexibleTubePolicy: "allowed", doubleContainment: false, status: "active" },
     fields: [{ key: "ruleCode", label: "规则编码", required: true }, { key: "packageCode", label: "包件编码", required: true }, { key: "systemCode", label: "系统编码", required: true },
@@ -197,11 +272,14 @@ const definitions: Record<string, EntityDefinition> = {
 const groups = [
   { id: "engineering", label: "项目与系统", entities: ["projects", "systems", "tags", "interfaces"] },
   { id: "equipment", label: "设备工厂", entities: ["equipmentFactories", "equipmentModels", "equipmentComponents", "equipmentPorts"] },
+  { id: "catalog", label: "全局产品型录", entities: ["productCategories", "productParameterDefinitions", "catalogProducts", "productVariants", "productApplications"] },
+  { id: "selection", label: "项目选型", entities: ["projectProductRequirements", "catalogCandidates"] },
   { id: "rules", label: "材料与规则", entities: ["materials", "materialCompatibility", "technicalRules", "brandRules"] },
   { id: "delivery", label: "采购与交付", entities: ["bomItems", "purchaseOrders", "testPacks", "punchItems", "managementOfChanges", "constructionWorkPackages", "workflowActions"] },
 ];
 
 const entityKeys = Object.keys(definitions);
+const globalEntityKeys = new Set(["materials", "materialCompatibility", "equipmentFactories", "equipmentModels", "equipmentComponents", "equipmentPorts", "productCategories", "productParameterDefinitions", "catalogProducts", "productVariants", "productApplications", "technicalRules", "brandRules"]);
 
 function displayJson(value: unknown) {
   if (typeof value !== "string") return value ?? "";
@@ -230,7 +308,8 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [canWrite, setCanWrite] = useState(false);
+  const [baseCanWrite, setBaseCanWrite] = useState(false);
+  const [canWriteGlobal, setCanWriteGlobal] = useState(false);
   const [identity, setIdentity] = useState("");
   const [error, setError] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -239,6 +318,7 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
   const attachmentInput = useRef<HTMLInputElement>(null);
 
   const definition = definitions[activeEntity];
+  const canWrite = baseCanWrite && (!globalEntityKeys.has(activeEntity) || canWriteGlobal);
   const filteredRows = useMemo(() => {
     const rows = records[activeEntity] ?? [];
     const needle = query.trim().toLowerCase();
@@ -257,9 +337,10 @@ export function MasterDataPage({ notify }: { notify: Notify }) {
     try {
       const response = await fetch(`/api/master-data?entities=${entityKeys.join(",")}&projectId=${encodeURIComponent(getCurrentProjectId())}`, { cache: "no-store" });
       if (!response.ok) throw new Error(await readError(response));
-      const payload = await response.json() as { data: Record<string, Row[]>; permissions?: { canWrite?: boolean }; principal?: { displayName?: string; email?: string } };
+      const payload = await response.json() as { data: Record<string, Row[]>; permissions?: { canWrite?: boolean; canWriteGlobal?: boolean }; principal?: { displayName?: string; email?: string } };
       setRecords(payload.data ?? {});
-      setCanWrite(Boolean(payload.permissions?.canWrite));
+      setBaseCanWrite(Boolean(payload.permissions?.canWrite));
+      setCanWriteGlobal(Boolean(payload.permissions?.canWriteGlobal));
       setIdentity(payload.principal?.displayName || payload.principal?.email || "");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "主数据加载失败"); }
     finally { setLoading(false); }

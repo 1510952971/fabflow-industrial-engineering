@@ -2,6 +2,16 @@
 
 面向全球 FAB 建设、厂务系统设计、设备厂协同、材料校验、采购质量、施工测试与移交的全栈工程管理原型。
 
+## 推荐工作流程
+
+1. 创建项目并初始化项目级 RBAC、13 类 FAB 厂务系统和资料目录。
+2. 上传项目技术规格书，确认系统自动提取的介质、压力、温度、尺寸、接口、材质、标准、品牌等条件。
+3. 用项目条件匹配全局设备材料型录；没有合格产品时进入 RFQ、TQ、品牌报审和待复核型录闭环。
+4. 对候选产品及设备内部部件执行材料、介质、压力、温度、接口、洁净度和证据文件联合校验。
+5. 选入项目 BOM，完成选型冻结、设备内部 BOM 冻结和项目发布审批。
+
+完整界面操作和异常处理见 [FabFlow 操作说明](docs/operation-manual.md)。
+
 ## 本地运行
 
 环境要求：Node.js 22.13 或更高版本。
@@ -60,4 +70,30 @@ npm run build
 - `npm run db:migrate:local`：初始化或升级本地 D1。
 - `npm run db:generate`：数据库结构变更后生成迁移。
 - `npm test`：执行构建与回归测试。
-- `npm run build`：生成 Sites/Cloudflare Worker 发布产物。
+- `npm run build`：生成 Cloudflare Worker 发布产物。
+
+## 换电脑下载与更新
+
+首次下载：
+
+```powershell
+git clone https://github.com/1510952971/fabflow-industrial-engineering.git
+cd fabflow-industrial-engineering
+npm install
+npm run db:migrate:local
+npm run dev
+```
+
+已有副本更新：
+
+```powershell
+git pull
+npm install
+npm run db:migrate:local
+```
+
+源码仓库不保存本机 `.wrangler` 数据库、R2 文件、账号会话、产品型录原件、日志、缓存、环境变量和发布压缩包。换电脑后需要重新初始化本地数据库；需要迁移真实业务数据时，应单独备份 D1/R2 或使用正式 Cloudflare 环境，不能把运行数据库提交到 Git。
+
+## 独立部署
+
+项目不依赖 Codex Sites。Cloudflare Workers、D1、R2 的首次创建、密钥配置和发布步骤见 [独立部署说明](docs/cloudflare-deployment.md)。

@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, inArray, like, or } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { getDb } from "@/db";
 import {
   bomItems,
@@ -7,6 +8,13 @@ import {
   equipmentFactories,
   equipmentModels,
   equipmentPorts,
+  catalogProducts,
+  catalogCandidates,
+  productApplications,
+  productCategories,
+  productParameterDefinitions,
+  productVariants,
+  projectProductRequirements,
   interfaces,
   materialApprovalRules,
   materialCompatibility,
@@ -15,6 +23,7 @@ import {
   projects,
   punchItems,
   purchaseOrders,
+  releaseGates,
   systems,
   tags,
   technicalMaterialRules,
@@ -25,6 +34,7 @@ import { recordVersions } from "@/db/workflow-schema";
 import { ApiError, errorResponse } from "@/lib/api";
 import { writeAudit } from "@/lib/audit";
 import { assertAuthenticated, assertProjectAccess, authorize, PUBLIC_DEMO_PROJECT_ID, type Principal } from "@/lib/auth";
+import { validateProductSpecifications, type ProductParameterDefinition } from "@/lib/product-catalog";
 
 type FieldKind = "text" | "number" | "integer" | "boolean" | "json";
 type EntityConfig = {
@@ -89,7 +99,41 @@ const entityConfigs: Record<string, EntityConfig> = {
     fields: { equipmentModelId: "text", portCode: "text", service: "text", direction: "text", connectionStandard: "text", nominalSize: "text", pressureRatingMpa: "number", temperatureRatingC: "number", faceToFaceMm: "number" },
     required: ["equipmentModelId", "portCode", "service", "direction", "connectionStandard", "nominalSize", "pressureRatingMpa", "temperatureRatingC"],
   },
-  technicalRules: {
+  productCategories: {
+    table: productCategories, idColumn: productCategories.id, label: "产品分类",
+    fields: { code: "text", name: "text", parentCode: "text", discipline: "text", applicableSystemsJson: "json", icon: "text", description: "text", status: "text" },
+    required: ["code", "name", "discipline", "applicableSystemsJson"],
+  },
+  productParameterDefinitions: {
+    table: productParameterDefinitions, idColumn: productParameterDefinitions.id, label: "产品参数定义",
+    fields: { categoryId: "text", key: "text", label: "text", groupName: "text", dataType: "text", unit: "text", required: "boolean", comparable: "boolean", optionsJson: "json", validationJson: "json", sortOrder: "integer", helpText: "text", status: "text" },
+    required: ["categoryId", "key", "label", "groupName", "dataType", "sortOrder"],
+  },
+  catalogProducts: {
+    table: catalogProducts, idColumn: catalogProducts.id, label: "型录产品",
+    fields: { categoryId: "text", factoryId: "text", manufacturer: "text", brand: "text", productCode: "text", productName: "text", series: "text", model: "text", description: "text", country: "text", lifecycleStatus: "text", applicableSystemsJson: "json", mediaJson: "json", imagesJson: "json", minPressureMpa: "number", maxPressureMpa: "number", minTemperatureC: "number", maxTemperatureC: "number", nominalSize: "text", connectionStandard: "text", wettedMaterialsJson: "json", surfaceFinish: "text", cleanlinessGrade: "text", maxFlow: "number", flowUnit: "text", supplyVoltage: "text", signalProtocol: "text", ingressProtection: "text", hazardousAreaRating: "text", certificationsJson: "json", standardsJson: "json", specificationsJson: "json", sourceDocument: "text", sourceUrl: "text", sourcePage: "text", revision: "text", status: "text" },
+    required: ["categoryId", "manufacturer", "brand", "productCode", "productName", "model", "applicableSystemsJson", "specificationsJson"],
+  },
+  productVariants: {
+    table: productVariants, idColumn: productVariants.id, label: "产品型号变体",
+    fields: { productId: "text", sku: "text", optionCode: "text", name: "text", specificationsJson: "json", dimensionsJson: "json", weightKg: "number", leadTimeWeeks: "integer", unitPriceCny: "number", status: "text" },
+    required: ["productId", "sku", "name", "specificationsJson", "dimensionsJson"],
+  },
+  productApplications: {
+    table: productApplications, idColumn: productApplications.id, label: "产品系统适用性",
+    fields: { productId: "text", systemCode: "text", service: "text", medium: "text", suitability: "text", limitations: "text" },
+    required: ["productId", "systemCode", "service", "suitability"],
+  },
+  projectProductRequirements: {
+    table: projectProductRequirements, idColumn: projectProductRequirements.id, label: "项目产品选型要求",
+    fields: { projectId: "text", requirementCode: "text", title: "text", systemCode: "text", categoryId: "text", attachmentId: "text", sourceFileName: "text", sourceRevision: "text", medium: "text", designPressureMpa: "number", designTemperatureC: "number", nominalSize: "text", connectionStandard: "text", requiredMaterialsJson: "json", requiredCertificationsJson: "json", requiredStandardsJson: "json", requiredBrandsJson: "json", requiredSpecificationsJson: "json", notes: "text", status: "text", selectedProductId: "text", selectedVariantId: "text", selectionStatus: "text", selectedBy: "text", selectedAt: "text" },
+    required: ["projectId", "requirementCode", "title", "systemCode", "categoryId"],
+  },
+  catalogCandidates: {
+    table: catalogCandidates, idColumn: catalogCandidates.id, label: "项目候选产品",
+    fields: { projectId: "text", requirementId: "text", candidateCode: "text", proposedProductName: "text", categoryId: "text", manufacturer: "text", brand: "text", model: "text", supplier: "text", rfqNumber: "text", technicalQueryNumber: "text", requirementSnapshotJson: "json", vendorDataJson: "json", promotedProductId: "text", status: "text", assignedTo: "text", createdBy: "text" },
+    required: ["projectId", "requirementId", "candidateCode", "proposedProductName", "categoryId", "requirementSnapshotJson", "createdBy"],
+  },  technicalRules: {
     table: technicalMaterialRules, idColumn: technicalMaterialRules.id, label: "技术文件规则",
     fields: { ruleCode: "text", packageCode: "text", systemCode: "text", serviceName: "text", mediumCodesJson: "json", approvalRuleCode: "text", requiredGrade: "text", requiredFinish: "text", fittingStandard: "text", valveType: "text", flexibleTubePolicy: "text", doubleContainment: "boolean", nominalSizesJson: "json", restrictions: "text", sourceDocument: "text", sourcePages: "text", sourceClause: "text", status: "text" },
     required: ["ruleCode", "packageCode", "systemCode", "serviceName", "mediumCodesJson", "requiredGrade", "requiredFinish", "fittingStandard", "valveType", "sourceDocument", "sourcePages", "sourceClause"],
@@ -138,7 +182,7 @@ const entityConfigs: Record<string, EntityConfig> = {
 
 // Project-scoped rows are always filtered and authorized on the server.
 // Catalog/rule entities are global reference data and require a global role to edit.
-const projectColumns: Record<string, typeof projects.id> = {
+const projectColumns: Record<string, AnySQLiteColumn> = {
   projects: projects.id,
   systems: systems.projectId,
   tags: tags.projectId,
@@ -150,6 +194,8 @@ const projectColumns: Record<string, typeof projects.id> = {
   managementOfChanges: managementOfChanges.projectId,
   constructionWorkPackages: constructionWorkPackages.projectId,
   workflowActions: workflowActions.projectId,
+  projectProductRequirements: projectProductRequirements.projectId,
+  catalogCandidates: catalogCandidates.projectId,
 };
 
 const searchFields: Record<string, string[]> = {
@@ -162,6 +208,13 @@ const searchFields: Record<string, string[]> = {
   equipmentModels: ["code", "name", "category", "designStandard"],
   equipmentComponents: ["componentCode", "componentName", "function", "medium"],
   equipmentPorts: ["portCode", "service", "connectionStandard", "nominalSize"],
+  productCategories: ["code", "name", "discipline", "description"],
+  productParameterDefinitions: ["key", "label", "groupName", "unit", "helpText"],
+  catalogProducts: ["manufacturer", "brand", "productCode", "productName", "series", "model", "description", "connectionStandard", "sourceDocument"],
+  productVariants: ["sku", "optionCode", "name"],
+  productApplications: ["systemCode", "service", "medium", "suitability", "limitations"],
+  projectProductRequirements: ["requirementCode", "title", "systemCode", "sourceFileName", "medium", "nominalSize", "connectionStandard", "status", "selectionStatus"],
+  catalogCandidates: ["candidateCode", "proposedProductName", "manufacturer", "brand", "model", "supplier", "rfqNumber", "technicalQueryNumber", "status", "assignedTo"],
   technicalRules: ["ruleCode", "packageCode", "systemCode", "serviceName", "sourceDocument"],
   brandRules: ["ruleCode", "packageCode", "itemName", "requiredGrade", "sourceDocument"],
   bomItems: ["itemCode", "itemName", "specification", "sourceType"],
@@ -241,6 +294,26 @@ function canWrite(roles: string[]) {
   return roles.some((role) => ["platform_admin", "project_manager", "system_owner", "equipment_engineer"].includes(role));
 }
 
+async function assertProjectReleasedForPurchase(row: Record<string, unknown>) {
+  const projectId = String(row.projectId ?? "");
+  const [gate] = await getDb().select().from(releaseGates).where(and(eq(releaseGates.projectId, projectId), eq(releaseGates.gateType, "project_release"), eq(releaseGates.entityType, "projects"), eq(releaseGates.entityId, projectId), eq(releaseGates.status, "frozen"))).limit(1);
+  if (!gate) throw new ApiError(409, "项目尚未完成设计与采购发布冻结审批，不能创建或修改采购订单", "PROJECT_RELEASE_REQUIRED");
+}
+async function assertCatalogProductValid(row: Record<string, unknown>) {
+  const categoryId = String(row.categoryId ?? "");
+  if (!categoryId) throw new ApiError(400, "产品分类不能为空", "REQUIRED_FIELD");
+  const db = getDb();
+  const definitions = await db.select().from(productParameterDefinitions).where(eq(productParameterDefinitions.categoryId, categoryId));
+  const result = validateProductSpecifications(row.specificationsJson, definitions as ProductParameterDefinition[]);
+  if (!result.valid) throw new ApiError(400, result.issues.map((issue) => issue.message).join("；"), "INVALID_PRODUCT_SPECIFICATIONS");
+  const minPressure = row.minPressureMpa === null || row.minPressureMpa === undefined ? null : Number(row.minPressureMpa);
+  const maxPressure = row.maxPressureMpa === null || row.maxPressureMpa === undefined ? null : Number(row.maxPressureMpa);
+  const minTemperature = row.minTemperatureC === null || row.minTemperatureC === undefined ? null : Number(row.minTemperatureC);
+  const maxTemperature = row.maxTemperatureC === null || row.maxTemperatureC === undefined ? null : Number(row.maxTemperatureC);
+  if (minPressure !== null && maxPressure !== null && minPressure > maxPressure) throw new ApiError(400, "最低压力不能大于最高压力", "INVALID_PRODUCT_RANGE");
+  if (minTemperature !== null && maxTemperature !== null && minTemperature > maxTemperature) throw new ApiError(400, "最低温度不能大于最高温度", "INVALID_PRODUCT_RANGE");
+}
+
 export async function GET(request: Request) {
   try {
     const principal = await authorize(request, "data:read");
@@ -248,7 +321,7 @@ export async function GET(request: Request) {
     const requested = (url.searchParams.get("entities") ?? url.searchParams.get("entity") ?? "projects")
       .split(",").map((value) => value.trim()).filter(Boolean);
     const uniqueEntities = [...new Set(requested)];
-    if (uniqueEntities.length > 20) throw new ApiError(400, "一次最多读取 20 类数据", "TOO_MANY_ENTITIES");
+    if (uniqueEntities.length > 40) throw new ApiError(400, "一次最多读取 40 类数据", "TOO_MANY_ENTITIES");
     const projectId = url.searchParams.get("projectId") ?? PUBLIC_DEMO_PROJECT_ID;
     const page = Math.max(1, Number(url.searchParams.get("page") ?? 1) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(url.searchParams.get("pageSize") ?? 500) || 500));
@@ -286,7 +359,7 @@ export async function GET(request: Request) {
         : await db.select().from(config.table).orderBy(orderBy).limit(pageSize).offset((page - 1) * pageSize);
       meta[entity] = { page, pageSize, total: Number(totalRows[0]?.value ?? 0) };
     }
-    return Response.json({ data, meta, principal, permissions: { canWrite: principal.authenticated && canWrite(principal.roles) } });
+    return Response.json({ data, meta, principal, permissions: { canWrite: principal.authenticated && canWrite(principal.roles), canWriteGlobal: principal.authenticated && hasGlobalScope(principal) } });
   } catch (error) { return errorResponse(error); }
 }
 
@@ -316,6 +389,7 @@ export async function POST(request: Request) {
       return Response.json({ item: restored, restoredFromVersion: body.versionId });
     }
     const config = getConfig(entity);
+    if (entity === "catalogCandidates") throw new ApiError(409, "候选产品必须从项目规格选型页生成，并按 RFQ / TQ / 品牌报审流程维护", "CANDIDATE_WORKFLOW_REQUIRED");
     if (body.items) {
       if (!Array.isArray(body.items) || body.items.length === 0 || body.items.length > 200) throw new ApiError(400, "批量导入必须包含 1–200 条记录", "INVALID_BATCH");
       const normalized = body.items.map((item) => normalizeData(config, item));
@@ -324,6 +398,8 @@ export async function POST(request: Request) {
       for (const values of normalized) {
         const row = { id: crypto.randomUUID(), ...values } as Record<string, unknown>;
         requireEntityWriteScope(principal, entity, row);
+        if (entity === "purchaseOrders") await assertProjectReleasedForPurchase(row);
+        if (entity === "catalogProducts") await assertCatalogProductValid(row);
         await db.insert(config.table).values(row);
         created.push(row);
         await writeAudit(request, principal, { projectId: projectIdFor(entity, row), action: `${entity}.import`, entityType: entity, entityId: String(row.id), after: row });
@@ -333,6 +409,8 @@ export async function POST(request: Request) {
     const values = normalizeData(config, body.data);
     const row = { id: crypto.randomUUID(), ...values } as Record<string, unknown>;
     requireEntityWriteScope(principal, entity, row);
+    if (entity === "purchaseOrders") await assertProjectReleasedForPurchase(row);
+    if (entity === "catalogProducts") await assertCatalogProductValid(row);
     const db = getDb();
     await db.insert(config.table).values(row);
     const [created] = await db.select().from(config.table).where(eq(config.idColumn, row.id)).limit(1);
@@ -354,8 +432,14 @@ export async function PATCH(request: Request) {
     const [before] = await db.select().from(config.table).where(eq(config.idColumn, body.id)).limit(1) as Record<string, unknown>[];
     if (!before) throw new ApiError(404, config.label + "记录不存在", "NOT_FOUND");
     requireEntityWriteScope(principal, entity, before);
+    if (entity === "purchaseOrders") await assertProjectReleasedForPurchase(before);
     await writeVersion(entity, before, "before_update", principal.email);
     const values = normalizeData(config, body.data, true);
+    if (entity === "catalogCandidates") {
+      for (const field of ["projectId", "requirementId", "candidateCode", "categoryId", "requirementSnapshotJson", "promotedProductId", "status", "createdBy"]) delete values[field];
+      if (before.status === "rfq_preparation" && ["manufacturer", "brand", "model", "supplier", "rfqNumber", "technicalQueryNumber", "vendorDataJson"].some((field) => values[field])) values.status = "vendor_data_received";
+    }
+    if (entity === "catalogProducts") await assertCatalogProductValid({ ...before, ...values });
     await db.update(config.table).set({ ...values, updatedAt: new Date().toISOString() }).where(eq(config.idColumn, body.id));
     const [after] = await db.select().from(config.table).where(eq(config.idColumn, body.id)).limit(1);
     await writeVersion(entity, after as Record<string, unknown>, "update", principal.email);

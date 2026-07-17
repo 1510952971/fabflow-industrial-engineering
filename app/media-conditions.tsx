@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { downloadCsv, downloadText, openMasterData, parseCsv } from "@/lib/client-actions";
 import { facilityDomains, facilitySystems } from "@/lib/facility-systems";
-import { getCurrentProjectId } from "@/lib/project-context";
+import { getCurrentProjectId, updateProjectUrl } from "@/lib/project-context";
+import { resolveProjectSystem } from "@/lib/project-systems-client";
+import type { PipeSelectionBasis } from "@/lib/pipe-selection-engine";
 
 type Notify = (message: string) => void;
 type MediaConditionRow = {
@@ -112,36 +114,84 @@ export function MediaConditionsPage({ notify }: { notify: Notify }) {
     notify(next.tagNo + " 已加入介质工况草稿清单");
   };
 
-  const saveTag = async () => {
+  const saveTag = async (openSelection = false) => {
     if (!medium.trim() || !tagNo.trim()) { notify("Tag 编号和介质为必填项"); return; }
+    if (pressureInvalid || temperatureInvalid) { notify("设计压力和设计温度不得低于操作工况"); return; }
     try {
+      const projectId = getCurrentProjectId();
+      const projectSystem = await resolveProjectSystem(activeSystem, true);
+      if (!projectSystem) throw new Error("当前项目系统解析失败");
+      const tagSearch = await fetch(`/api/master-data?entity=tags&projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(tagNo.trim())}`, { cache: "no-store" });
+      const tagPayload = await tagSearch.json();
+      if (!tagSearch.ok) throw new Error(tagPayload.error || "Tag 查询失败");
+      const existingTag = (tagPayload.data?.tags ?? []).find((item: { tagNo: string }) => item.tagNo === tagNo.trim());
       const response = await fetch("/api/master-data", {
-        method: "POST",
+        method: existingTag ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           entity: "tags",
+          id: existingTag?.id,
           data: {
-            projectId: getCurrentProjectId(),
-            systemId: activeSystem.dbSystemId,
+            projectId,
+            systemId: projectSystem.id,
             tagNo: tagNo.trim(),
             entityType: "line",
             description: activeSystem.code + " · " + activeSystem.name + " · " + phase + " · " + purity + " · " + flow + " " + flowUnit + " · " + connection + " " + nominalSize + (doubleContainment ? " · 双套管" : ""),
             designPressureMpa: designPressure,
             designTemperatureC: designTemperature,
             medium: medium.trim(),
-            status: "draft",
+            status: "design",
           },
         }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Tag 写入失败");
-      addCondition();
-      notify(tagNo + " 已写入 D1 Tag 台账");
+      const savedTag = payload.item as { id: string };
+      const interfaceCode = "IF-" + tagNo.trim();
+      const interfaceSearch = await fetch(`/api/master-data?entity=interfaces&projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(interfaceCode)}`, { cache: "no-store" });
+      const interfacePayload = await interfaceSearch.json();
+      if (!interfaceSearch.ok) throw new Error(interfacePayload.error || "接口查询失败");
+      const existingInterface = (interfacePayload.data?.interfaces ?? []).find((item: { interfaceCode: string }) => item.interfaceCode === interfaceCode);
+      const interfaceResponse = await fetch("/api/master-data", {
+        method: existingInterface ? "PATCH" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ entity: "interfaces", id: existingInterface?.id, data: {
+          projectId,
+          fromTagId: savedTag.id,
+          interfaceCode,
+          medium: medium.trim(),
+          connectionStandard: connection,
+          nominalSize,
+          designPressureMpa: designPressure,
+          designTemperatureC: designTemperature,
+          cleanlinessGrade: cleanliness,
+          ownerDiscipline: activeDomain?.name ?? activeSystem.domainId,
+          status: existingInterface?.status ?? "open",
+        } }),
+      });
+      const savedInterfacePayload = await interfaceResponse.json();
+      if (!interfaceResponse.ok) throw new Error(savedInterfacePayload.error || "接口写入失败");
+      const next = currentRow();
+      setRows((previous) => [next, ...previous.filter((row) => row.tagNo !== next.tagNo)]);
+      const selectionBasis: PipeSelectionBasis = {
+        sourceType: "interface",
+        sourceId: savedInterfacePayload.item.id,
+        sourceLabel: `${tagNo.trim()} · ${medium.trim()} · ${connection} ${nominalSize}`,
+        systemId: activeSystem.id,
+        medium: medium.trim(),
+        designPressureMpa: designPressure,
+        designTemperatureC: designTemperature,
+        connectionStandard: connection,
+        nominalSize,
+        cleanlinessGrade: cleanliness,
+      };
+      window.sessionStorage.setItem("fabflow:pipe-selection-basis", JSON.stringify(selectionBasis));
+      notify(tagNo + " 已写入 Tag 与接口台账，可用于材料选型");
+      if (openSelection) updateProjectUrl(projectId, "管路接头选型");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Tag 写入失败");
+      notify(error instanceof Error ? error.message : "Tag 与接口写入失败");
     }
   };
-
   const exportConditions = () => {
     downloadCsv(
       "fabflow-media-conditions-" + Date.now() + ".csv",
@@ -217,7 +267,7 @@ export function MediaConditionsPage({ notify }: { notify: Notify }) {
       <button className="softButton" onClick={() => importFile.current?.click()}>导入工况表</button>
       <input ref={importFile} type="file" accept=".csv,text/csv" hidden onChange={(event) => event.target.files?.[0] && void importConditions(event.target.files[0])}/>
       <button className="softButton" onClick={exportConditions}>导出清单</button>
-      <button className="primaryButton" onClick={() => void saveTag()}>写入 Tag 台账</button>
+      <button className="softButton" onClick={() => void saveTag()}>保存 Tag 与接口</button><button className="primaryButton" onClick={() => void saveTag(true)}>保存并进入选型</button>
     </>}/>
     <div className="moduleGrid mediaConditionGrid">
       <section className="card moduleCard span8">

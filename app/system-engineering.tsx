@@ -1,78 +1,136 @@
-﻿"use client";
+"use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { downloadCsv, openMasterData } from "@/lib/client-actions";
-import { facilityDomains, facilitySystems } from "@/lib/facility-systems";
+import { facilityDomains, getFacilitySystem } from "@/lib/facility-systems";
+import { getCurrentProjectId } from "@/lib/project-context";
 import { useWorkflowStates } from "@/lib/workflow-state";
 
-type Notify=(message:string)=>void;
+type Notify = (message: string) => void;
+type SystemSummary = { id: string; code: string; name: string; ownerEmail?: string | null; designMaturity: number; status: string; tags: number; interfaces: number; openInterfaces: number; bomItems: number; testPacks: number; testCompletion: number; openPunches: number; criticalIssues: number; warningIssues: number; readiness: number };
+type Issue = { id: string; severity: "critical" | "warning" | "info"; category: string; title: string; detail: string; entityType: string; entityId: string; systemId?: string };
+type TagRecord = { id: string; systemId: string; tagNo: string };
+type InterfaceRecord = { id: string; fromTagId?: string | null; toTagId?: string | null; interfaceCode: string; medium: string; connectionStandard: string; nominalSize: string; designPressureMpa: number; designTemperatureC: number; cleanlinessGrade: string; ownerDiscipline: string; status: string };
+type TestPackRecord = { id: string; systemId?: string | null; packNumber: string; title: string; testType: string; status: string; witnessRequired: boolean; signedAt?: string | null };
+type PunchRecord = { id: string; systemId?: string | null; punchNumber: string; category: string; description: string; status: string };
+type EngineeringData = {
+  summary: { systems: number; designMaturity: number; interfaces: number; openInterfaces: number; criticalInterfaces: number; testPacks: number; testCompletion: number; openPunches: number; classAPunches: number; readiness: number; criticalIssues: number; warningIssues: number };
+  systems: SystemSummary[];
+  issues: Issue[];
+  records: { interfaces: InterfaceRecord[]; tags: TagRecord[]; testPacks: TestPackRecord[]; punchItems: PunchRecord[] };
+ };
+type DomainCard = (typeof facilityDomains)[number] & { design: number; tags: number; interfaces: number; bom: number; tests: number; readiness: number; critical: number; warning: number; owner: string; metric: string; risk: string };
 
-const domainMetrics: Record<string,{design:number;mc:number;rfc:number;risk:string;tag:string;owner:string;metric:string}> = {
-  PROC: {design:89,mc:46,rfc:18,risk:"3 个危险介质接口",tag:"PROC-01~37",owner:"Process Fluids Lead",metric:"3 process packages"},
-  UTL: {design:92,mc:58,rfc:26,risk:"2 个接口关注",tag:"UTL-01~28",owner:"Utilities Lead",metric:"18.6 MW"},
-  CR: {design:84,mc:44,rfc:12,risk:"封闭条件 9 项",tag:"CR-01~16",owner:"Cleanroom Lead",metric:"42,800 m²"},
-  WTR: {design:88,mc:38,rfc:18,risk:"1 个排放许可",tag:"WTR-01~22",owner:"Water Lead",metric:"1,240 m³/d"},
-  EXH: {design:79,mc:31,rfc:9,risk:"AE-03 设备延期",tag:"EXH-01~19",owner:"Exhaust Lead",metric:"860,000 CMH"},
-  FIRE: {design:91,mc:47,rfc:22,risk:"AHJ 书面意见",tag:"FLS-01~14",owner:"EHS / Fire Lead",metric:"14 zones"},
-  CTRL: {design:73,mc:18,rfc:4,risk:"I/O 点表缺口",tag:"CTL-01~34",owner:"Controls Lead",metric:"12,486 I/O"},
-};
-const systems=facilityDomains.map((domain)=>({...domain,...domainMetrics[domain.id]}));
-
-const interfaces=[
-  ["IF-UTL-014","CDA 站房压力与 Tool Utility Matrix","动力","工艺 / 自控","确认压力 0.72 MPa 与低压报警值","待确认","高"],
-  ["IF-CR-022","洁净室压差与消防排烟联动","洁净","消防 / HVAC / BMS","确认火灾模式下压差策略与风阀位置","协调中","高"],
-  ["IF-WTR-031","酸碱废水中和池与排放许可","废水","EHS / 土建","完成排放限值和取样点复核","待确认","高"],
-  ["IF-EXH-018","Scrubber 联锁与 VMB Gas Detection","排风","特气 / 自控","形成 Cause & Effect Rev.C","已关闭","中"],
-  ["IF-CTL-041","BMS / EPMS 网络与时间同步","自控","IT / 电气","确定 VLAN、NTP、冗余链路方案","进行中","中"],
+const readinessTemplate = [
+  ["边界与 Tag 清单冻结", "系统边界、设备 Tag、管线号和 I/O 点表具备受控版本", "待开始"],
+  ["设计基准与计算书", "容量、峰值、冗余、压力、流量和能耗计算已批准", "进行中"],
+  ["Vendor Data 与接口", "关键设备资料、接口、联锁和维护空间已锁定", "进行中"],
+  ["施工图与工作包", "IFC 图、材料、施工方案和 ITP 已关联", "待开始"],
+  ["试验与调试包", "压力、气密、冲洗、功能和联锁试验包已建立", "待开始"],
+  ["移交与运营资料", "SOP、培训、备件、竣工图和 O&M 已纳入", "待开始"],
 ];
 
-const causeEffectRows=[["Cl₂ 泄漏报警","Gas Detector GD-014","关闭 VMB 气动阀","启动局部排风","通知 F&G / BMS"],["洁净室火灾模式","Fire Alarm Zone 04","关闭 MAU / FFU","启动排烟 / 防火阀","释放门禁 / 广播"],["UPW 低流量","Flow Switch FS-22","报警并锁定设备","切换备用泵","记录 BMS 事件"],["Scrubber 高液位","LT-301 High High","停止工艺排风","关闭旁路风阀","通知 EHS / 运营"]];
+const closed = (status: string) => ["closed", "completed", "complete", "approved", "signed", "已关闭", "完成"].includes(status.toLowerCase()) || ["已关闭", "完成"].includes(status);
+const statusLabel = (status: string) => closed(status) ? "已关闭" : ["working", "in_progress", "coordinating", "协调中", "进行中"].includes(status.toLowerCase()) ? "协调中" : status === "open" ? "待确认" : status;
+const average = (values: number[]) => values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
 
-const checks=[
-  ["边界与 Tag 清单冻结","系统边界图、设备 Tag、管线号和 I/O 点表具备版本","完成"],["设计基准与计算书","容量、峰值、冗余、压力、流量和能耗计算已批准","完成"],["Vendor Data 与接口","关键设备资料、联锁、维护空间和电气条件已锁定","进行中"],["施工图与工作包","IFC 图、材料、施工方案和 ITP 已关联","进行中"],["试验与调试包","压力 / 气密 / 冲洗 / 功能 / 联锁试验包已建立","待开始"],["移交与运营资料","SOP、培训、备件、竣工图和 O&M 已纳入","待开始"],
-];
+export function SystemEngineeringPage({ notify }: { notify: Notify }) {
+  const [selected, setSelected] = useState(() => typeof window === "undefined" ? "UTL" : window.sessionStorage.getItem("fabflow:system-domain") || "UTL");
+  const [tab, setTab] = useState("系统总览");
+  const [data, setData] = useState<EngineeringData | null>(null);
+  const [error, setError] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  const { states: readinessStates, save: saveReadiness } = useWorkflowStates("system_readiness");
 
-export function SystemEngineeringPage({notify:parentNotify}:{notify:Notify}){
-  const notify:Notify=(message)=>{
-    parentNotify(message);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/engineering/validate?projectId=${encodeURIComponent(getCurrentProjectId())}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "系统工程数据加载失败"); return payload as EngineeringData; })
+      .then((payload) => { setData(payload); setError(""); })
+      .catch((cause) => { if (cause instanceof Error && cause.name !== "AbortError") setError(cause.message); });
+    return () => controller.abort();
+  }, [refresh]);
+
+  const domainCards = useMemo<DomainCard[]>(() => facilityDomains.map((domain) => {
+    const projectSystems = (data?.systems ?? []).filter((system) => getFacilitySystem(system.code)?.domainId === domain.id);
+    const critical = projectSystems.reduce((sum, item) => sum + item.criticalIssues, 0);
+    const warning = projectSystems.reduce((sum, item) => sum + item.warningIssues, 0);
+    const owners = [...new Set(projectSystems.map((item) => item.ownerEmail).filter(Boolean))] as string[];
+    return {
+      ...domain,
+      progress: average(projectSystems.map((item) => item.readiness)),
+      design: average(projectSystems.map((item) => item.designMaturity)),
+      tags: projectSystems.reduce((sum, item) => sum + item.tags, 0),
+      interfaces: projectSystems.reduce((sum, item) => sum + item.interfaces, 0),
+      bom: projectSystems.reduce((sum, item) => sum + item.bomItems, 0),
+      tests: projectSystems.reduce((sum, item) => sum + item.testPacks, 0),
+      readiness: average(projectSystems.map((item) => item.readiness)),
+      critical,
+      warning,
+      owner: owners.join("、") || "待指定系统负责人",
+      metric: `${projectSystems.length} 个项目系统`,
+      risk: critical ? `${critical} 个关键阻断` : warning ? `${warning} 个待完善项` : projectSystems.length ? "无关键阻断" : "项目尚未建立此系统域",
+    };
+  }), [data]);
+  const current = domainCards.find((item) => item.id === selected) ?? domainCards[0];
+  const currentSystems = (data?.systems ?? []).filter((system) => getFacilitySystem(system.code)?.domainId === current.id);
+  const checks = readinessTemplate.map((row, index) => [row[0], row[1], readinessStates[`${selected}:${index}`]?.status ?? row[2]]);
+
+  const toggleCheck = async (index: number) => {
+    const row = checks[index];
+    const status = row[2] === "完成" ? "进行中" : "完成";
+    try {
+      await saveReadiness(`${selected}:${index}`, status, { domainId: selected, name: row[0], description: row[1] }, String(row[0]), "readiness_item");
+      notify(`${current.name} · ${row[0]} 已更新为${status}`);
+    } catch (cause) { notify(cause instanceof Error ? cause.message : "准入状态保存失败"); }
   };
-  const [selected,setSelected]=useState(() => {
-    if (typeof window !== "undefined") {
-      const domain=window.sessionStorage.getItem("fabflow:system-domain");
-      if (domain && systems.some(item=>item.id===domain)) { window.sessionStorage.removeItem("fabflow:system-domain"); return domain; }
-    }
-    return "UTL";
-  }); const [tab,setTab]=useState("系统总览"); const [rawInterfaceRows,setInterfaceRows]=useState(interfaces); const [rawChecksState,setChecksState]=useState(checks);
-  const {states:interfaceStates,save:saveInterface}=useWorkflowStates("interface_state");
-  const {states:readinessStates,save:saveReadiness}=useWorkflowStates("system_readiness");
-  const interfaceRows=rawInterfaceRows.map((row)=>[...row.slice(0,5),interfaceStates[row[0]]?.status??row[5],row[6]]);
-  const checksState=rawChecksState.map((row,index)=>[row[0],row[1],readinessStates[String(index)]?.status??row[2]]);
-  const current=systems.find(x=>x.id===selected)??systems[0];
-  const closeInterface=async(id:string)=>{const row=interfaceRows.find((item)=>item[0]===id);if(!row)return;try{await saveInterface(id,"已关闭",{row},String(row[1]),"interface");setInterfaceRows(rawInterfaceRows.map(x=>x[0]===id?[...x.slice(0,5),"已关闭",x[6]]:x));notify(id+" 接口问题已关闭")}catch(error){notify(error instanceof Error?error.message:"接口状态保存失败")}};
-  const toggleCheck=async(index:number)=>{const row=checksState[index];const status=row[2]==="完成"?"进行中":"完成";try{await saveReadiness(String(index),status,{name:row[0],description:row[1]},String(row[0]),"readiness_item");setChecksState(rawChecksState.map((x,i)=>i===index?[x[0],x[1],status]:x));notify(String(row[0])+" 状态已更新")}catch(error){notify(error instanceof Error?error.message:"准入状态保存失败")}};
+
+  const closeInterface = async (id: string) => {
+    try {
+      const response = await fetch("/api/master-data", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: "interfaces", id, data: { status: "closed" } }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "接口关闭失败");
+      setRefresh((value) => value + 1);
+      notify("接口状态已写入 D1 并记录审计日志");
+    } catch (cause) { notify(cause instanceof Error ? cause.message : "接口关闭失败"); }
+  };
+
+  const summary = data?.summary ?? { systems: 0, designMaturity: 0, interfaces: 0, openInterfaces: 0, criticalInterfaces: 0, testPacks: 0, testCompletion: 0, openPunches: 0, classAPunches: 0, readiness: 0, criticalIssues: 0, warningIssues: 0 };
   return <>
-    <div className="moduleTop systemTop"><div><span>SYSTEM ENGINEERING DOMAINS</span><h2>厂务系统工程域总览</h2><p>将工艺流体、动力、洁净、水、排风、消防和自控按统一系统目录、接口、测试包与移交状态管理</p></div><div className="moduleActions"><button className="softButton" onClick={()=>downloadCsv("fabflow-system-list.csv",["系统编码","系统名称","英文名称","负责人","总体进度","设计成熟度","MC","RFC","风险"],systems.map(x=>[x.id,x.name,x.en,x.owner,`${x.progress}%`,`${x.design}%`,`${x.mc}%`,`${x.rfc}%`,x.risk]))}>导出系统清单</button><button className="primaryButton" onClick={()=>openMasterData("systems")}>＋ 新建系统边界</button></div></div>
-    <div className="systemDomainKpis"><section className="card"><span>系统域</span><b>{systems.length}<small>个</small></b><p>{facilitySystems.length} 个工程系统 · 128 个系统包</p></section><section className="card"><span>设计成熟度</span><b>82<small>%</small></b><p>2 个域低于 G3 目标</p></section><section className="card"><span>接口事项</span><b>26<small>项</small></b><p className="amberText">9 项影响关键路径</p></section><section className="card"><span>测试包</span><b>173<small>包</small></b><p>通过率 94.2%</p></section><section className="card"><span>移交准备</span><b>38<small>%</small></b><p className="redText">A 类 Punch 6 项</p></section></div>
-    <div className="systemTabs">{["系统总览","接口与联锁","系统准入","测试与移交"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}><i>{x==="系统总览"?"◎":x==="接口与联锁"?"◇":x==="系统准入"?"✓":"⌁"}</i><span>{x}</span><small>{x==="系统总览"?systems.length+" domains":x==="接口与联锁"?"Interface Register":x==="系统准入"?"Readiness Gates":"Test & Handover"}</small></button>)}</div>
-    {tab==="系统总览"&&<OverviewView systems={systems} selected={selected} setSelected={setSelected} current={current} notify={notify}/>} 
-    {tab==="接口与联锁"&&<InterfaceView rows={interfaceRows} close={closeInterface} notify={notify}/>} 
-    {tab==="系统准入"&&<ReadinessView checks={checksState} toggle={toggleCheck} current={current} notify={notify}/>} 
-    {tab==="测试与移交"&&<SystemTestingView current={current} notify={notify}/>} 
+    <div className="moduleTop systemTop"><div><span>SYSTEM ENGINEERING DOMAINS</span><h2>厂务系统工程域总览</h2><p>所有数字来自当前项目 D1 的系统、Tag、接口、BOM、测试包和 Punch 联合校验</p></div><div className="moduleActions"><button className="softButton" onClick={() => downloadCsv("fabflow-system-validation.csv", ["系统编码","系统名称","设计成熟度","Tag","接口","BOM","测试包","准备度","关键问题"], (data?.systems ?? []).map((item) => [item.code,item.name,item.designMaturity,item.tags,item.interfaces,item.bomItems,item.testPacks,item.readiness,item.criticalIssues]))}>导出校验结果</button><button className="primaryButton" onClick={() => openMasterData("systems")}>＋ 新建系统边界</button></div></div>
+    {error && <section className="card errorBanner"><b>系统工程数据加载失败</b><span>{error}</span><button onClick={() => setRefresh((value) => value + 1)}>重试</button></section>}
+    <div className="systemDomainKpis"><section className="card"><span>项目系统</span><b>{summary.systems}<small>个</small></b><p>{domainCards.filter((item) => item.metric !== "0 个项目系统").length} 个工程域有数据</p></section><section className="card"><span>设计成熟度</span><b>{summary.designMaturity}<small>%</small></b><p>按项目系统台账实时平均</p></section><section className="card"><span>开放接口</span><b>{summary.openInterfaces}<small> / {summary.interfaces}</small></b><p className={summary.criticalInterfaces ? "redText" : ""}>{summary.criticalInterfaces} 项关键接口问题</p></section><section className="card"><span>测试包</span><b>{summary.testPacks}<small>包</small></b><p>完成率 {summary.testCompletion}%</p></section><section className="card"><span>系统准备度</span><b>{summary.readiness}<small>%</small></b><p className={summary.classAPunches ? "redText" : ""}>A 类未关闭 Punch {summary.classAPunches} 项</p></section></div>
+    <div className="systemTabs">{["系统总览","接口与联锁","系统准入","测试与移交"].map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}><i>{item === "系统总览" ? "◎" : item === "接口与联锁" ? "◇" : item === "系统准入" ? "✓" : "⌁"}</i><span>{item}</span><small>{item === "系统总览" ? `${summary.systems} systems` : item === "接口与联锁" ? `${summary.openInterfaces} open` : item === "系统准入" ? `${summary.criticalIssues} blockers` : `${summary.testPacks} packs`}</small></button>)}</div>
+    {tab === "系统总览" && <OverviewView systems={domainCards} selected={selected} setSelected={setSelected} current={current} projectSystems={currentSystems} notify={notify}/>}
+    {tab === "接口与联锁" && <InterfaceView data={data} close={closeInterface} notify={notify}/>}
+    {tab === "系统准入" && <ReadinessView checks={checks} toggle={toggleCheck} current={current} projectSystems={currentSystems} notify={notify}/>}
+    {tab === "测试与移交" && <SystemTestingView current={current} systemIds={new Set(currentSystems.map((item) => item.id))} data={data} notify={notify}/>}
   </>;
 }
 
-function OverviewView({systems,selected,setSelected,current,notify}:{systems:typeof systems;selected:string;setSelected:(x:string)=>void;current:typeof systems[number];notify:Notify}){
-  return <><div className="domainGrid">{systems.map(s=><button className={`card domainCard ${selected===s.id?"active":""}`} key={s.id} onClick={()=>setSelected(s.id)}><div className={`domainIcon ${s.color}`}>{s.icon}</div><div className="domainHeader"><span>{s.id} · {s.tag}</span><i className={s.color}>{s.progress>=70?"正常":s.progress>=55?"关注":"风险"}</i></div><h3>{s.name}</h3><small className="domainEn">{s.en}</small><p>{s.scope}</p><div className="domainProgress"><span><b>总体进度</b><em>{s.progress}%</em></span><div><i style={{width:`${s.progress}%`}}/></div></div><div className="domainStats"><span>设计 <b>{s.design}%</b></span><span>MC <b>{s.mc}%</b></span><span>RFC <b>{s.rfc}%</b></span></div><footer><span><i className={`domainDot ${s.color}`}/>{s.risk}</span><em>{s.metric}</em></footer></button>)}</div><div className="domainDetailLayout"><section className="card domainDetail"><div className="systemHead"><div className={`domainIcon ${current.color}`}>{current.icon}</div><div><span>{current.id} · SYSTEM BOUNDARY</span><h3>{current.name}</h3><p>{current.scope}</p></div><button onClick={()=>{openMasterData("systems",current.id);notify(`已打开 ${current.name} 系统边界数据`)}}>打开边界图 →</button></div><div className="boundaryFlow"><div><i>01</i><span><b>设计边界</b><small>Design / Calculation / Spec</small></span></div><em>→</em><div><i>02</i><span><b>采购边界</b><small>Equipment / Material / Vendor</small></span></div><em>→</em><div><i>03</i><span><b>施工边界</b><small>CWP / ITP / QA-QC</small></span></div><em>→</em><div><i>04</i><span><b>调试边界</b><small>Test Pack / Interlock / Handover</small></span></div></div><div className="domainMetrics"><div><span>设计成熟度</span><b>{current.design}%</b><div><i style={{width:`${current.design}%`}}/></div></div><div><span>机械完工 MC</span><b>{current.mc}%</b><div><i className="green" style={{width:`${current.mc}%`}}/></div></div><div><span>RFC 准备度</span><b>{current.rfc}%</b><div><i className="purple" style={{width:`${current.rfc}%`}}/></div></div><div><span>关键风险</span><b className="redText">{current.risk}</b><small>需系统负责人签字确认</small></div></div></section><aside className="card domainNotes"><span>SYSTEM OWNER NOTES</span><h3>{current.owner}</h3><p>本域的设计输入、接口和测试边界由系统负责人统一签字，跨专业事项不能只在单专业图纸中关闭。</p><div><b>当前关注</b><span>{current.risk}</span></div><button className="fullPrimary" onClick={()=>{openMasterData("workflowActions",current.id);notify(`${current.name} 责任人会议表单已打开`)}}>召集系统评审</button></aside></div></>;
+function OverviewView({ systems, selected, setSelected, current, projectSystems, notify }: { systems: DomainCard[]; selected: string; setSelected: (value: string) => void; current: DomainCard; projectSystems: SystemSummary[]; notify: Notify }) {
+  return <><div className="domainGrid">{systems.map((system) => <button className={`card domainCard ${selected === system.id ? "active" : ""}`} key={system.id} onClick={() => setSelected(system.id)}><div className={`domainIcon ${system.color}`}>{system.icon}</div><div className="domainHeader"><span>{system.id} · {system.tags} Tags</span><i className={system.color}>{system.critical ? "阻断" : system.warning ? "关注" : system.metric.startsWith("0") ? "未建立" : "正常"}</i></div><h3>{system.name}</h3><small className="domainEn">{system.en}</small><p>{system.scope}</p><div className="domainProgress"><span><b>系统准备度</b><em>{system.readiness}%</em></span><div><i style={{ width: `${system.readiness}%` }}/></div></div><div className="domainStats"><span>Tag <b>{system.tags}</b></span><span>接口 <b>{system.interfaces}</b></span><span>BOM <b>{system.bom}</b></span></div><footer><span><i className={`domainDot ${system.color}`}/>{system.risk}</span><em>{system.metric}</em></footer></button>)}</div><div className="domainDetailLayout"><section className="card domainDetail"><div className="systemHead"><div className={`domainIcon ${current.color}`}>{current.icon}</div><div><span>{current.id} · PROJECT SYSTEMS</span><h3>{current.name}</h3><p>{projectSystems.length ? `${projectSystems.length} 个系统已纳入当前项目联合校验` : "当前项目还没有建立此工程域的系统记录"}</p></div><button onClick={() => { openMasterData("systems", current.id); notify(`已打开 ${current.name} 系统台账`); }}>打开系统台账 →</button></div><div className="boundaryFlow"><div><i>01</i><span><b>设计输入</b><small>System / Tag / Basis</small></span></div><em>→</em><div><i>02</i><span><b>接口与选型</b><small>Interface / Material / Vendor</small></span></div><em>→</em><div><i>03</i><span><b>施工与试验</b><small>BOM / CWP / ITP / Test</small></span></div><em>→</em><div><i>04</i><span><b>关闭与移交</b><small>Punch / Evidence / Handover</small></span></div></div>{projectSystems.length ? <div className="domainInterfaceTable"><table><thead><tr><th>系统</th><th>设计成熟度</th><th>Tag / 接口</th><th>BOM / 测试包</th><th>准备度</th><th>问题</th></tr></thead><tbody>{projectSystems.map((item) => <tr key={item.id}><td><button onClick={() => openMasterData("systems", item.id)}><code>{item.code}</code> {item.name}</button></td><td>{item.designMaturity}%</td><td>{item.tags} / {item.interfaces}</td><td>{item.bomItems} / {item.testPacks}</td><td><b>{item.readiness}%</b></td><td><b className={item.criticalIssues ? "redText" : item.warningIssues ? "amberText" : ""}>{item.criticalIssues} / {item.warningIssues}</b></td></tr>)}</tbody></table></div> : <div className="emptyState"><b>尚无项目系统</b><p>点击“新建系统边界”录入，或从标准系统目录初始化。</p></div>}</section><aside className="card domainNotes"><span>SYSTEM OWNER & QUALITY</span><h3>{current.owner}</h3><p>此处只显示可追溯项目数据，不再使用演示进度或虚构测试数量。</p><div><b>当前联合校验</b><span>{current.risk}</span></div><button className="fullPrimary" onClick={() => { openMasterData("workflowActions", current.id); notify(`${current.name} 评审任务表单已打开`); }}>发起系统评审</button></aside></div></>;
 }
 
-function InterfaceView({rows,close,notify}:{rows:typeof interfaces;close:(id:string)=>void;notify:Notify}){
-  return <><section className="card interfaceHero"><div><span>INTERFACE & CAUSE / EFFECT</span><h2>系统接口与联锁矩阵</h2><p>实际工程中，最容易造成返工的不是单专业错误，而是系统边界和联锁责任未明确。</p></div><div className="interfaceCounts"><b>26<small>开放接口</small></b><b className="redText">9<small>关键影响</small></b><b>14<small>跨专业</small></b></div></section><section className="card domainInterfaceBoard"><div className="systemHead"><div><span>INTERFACE REGISTER</span><h3>接口责任、验收条件与关闭状态</h3></div><button onClick={()=>{openMasterData("interfaces");notify("已打开新接口表单")}}>＋ 新增接口</button></div><div className="domainInterfaceTable"><table><thead><tr><th>接口编号</th><th>系统边界 / 责任专业</th><th>必须确认的工程条件</th><th>状态</th><th>风险</th><th></th></tr></thead><tbody>{rows.map(x=><tr key={x[0]}><td><code>{x[0]}</code></td><td><b>{x[1]}</b><small>{x[2]} → {x[3]}</small></td><td>{x[4]}</td><td><i className={`interfaceState ${x[5]==="已关闭"?"closed":x[5]==="协调中"?"working":"pending"}`}>{x[5]}</i></td><td><b className={x[6]==="高"?"redText":"amberText"}>{x[6]}</b></td><td><button disabled={x[5]==="已关闭"} onClick={()=>close(x[0])}>{x[5]==="已关闭"?"已关闭":"关闭接口"}</button></td></tr>)}</tbody></table></div></section><div className="causeEffect"><section className="card causeCard"><div className="systemHead"><div><span>CAUSE & EFFECT</span><h3>典型联锁链路</h3></div><button onClick={()=>{downloadCsv("fabflow-cause-effect.csv",["Cause","Detector / Input","Action 1","Action 2","Notification"],causeEffectRows);notify("Cause & Effect 矩阵已导出")}}>导出矩阵</button></div>{[["Cl₂ 泄漏报警","Gas Detector GD-014","关闭 VMB 气动阀","启动局部排风","通知 F&G / BMS"],["洁净室火灾模式","Fire Alarm Zone 04","关闭 MAU / FFU","启动排烟 / 防火阀","释放门禁 / 广播"],["UPW 低流量","Flow Switch FS-22","报警并锁定设备","切换备用泵","记录 BMS 事件"],["Scrubber 高液位","LT-301 High High","停止工艺排风","关闭旁路风阀","通知 EHS / 运营"]].map(x=><div key={x[0]}><b>{x[0]}</b>{x.slice(1).map((y,i)=><span key={y}><i>{i+1}</i>{y}</span>)}</div>)}</section><aside className="card alarmCard"><span>ALARM / EVENT QUALITY</span><h3>报警点表质量</h3><div className="alarmScore"><b>91%</b><span>12,486 I/O 中<br/>11,362 已完成 Cause & Effect</span></div><p><span>高优先级报警</span><b>184</b></p><p><span>未定义响应</span><b className="redText">26</b></p><p><span>未完成 SAT</span><b className="amberText">41</b></p><button className="fullPrimary" onClick={()=>{downloadCsv("fabflow-alarm-gap.csv",["类别","数量","处置要求"],[["高优先级报警",184,"复核响应与抑制逻辑"],["未定义响应",26,"补充 Cause & Effect"],["未完成 SAT",41,"纳入试验包"]]);notify("报警点表差异清单已导出")}}>查看差异清单</button></aside></div></>;
+function InterfaceView({ data, close, notify }: { data: EngineeringData | null; close: (id: string) => void; notify: Notify }) {
+  const tags = new Map((data?.records.tags ?? []).map((tag) => [tag.id, tag]));
+  const interfaceIssues = data?.issues.filter((issue) => issue.category === "interface") ?? [];
+  const riskFor = (id: string) => interfaceIssues.some((issue) => issue.entityId === id && issue.severity === "critical") ? "高" : interfaceIssues.some((issue) => issue.entityId === id) ? "中" : "低";
+  const rows = data?.records.interfaces ?? [];
+  return <><section className="card interfaceHero"><div><span>INTERFACE REGISTER & VALIDATION</span><h2>系统接口联合校验</h2><p>接口状态、介质、压力温度和 Tag 关联均来自当前项目权威记录。</p></div><div className="interfaceCounts"><b>{data?.summary.openInterfaces ?? 0}<small>开放接口</small></b><b className="redText">{data?.summary.criticalInterfaces ?? 0}<small>关键问题</small></b><b>{rows.length}<small>接口总数</small></b></div></section><section className="card domainInterfaceBoard"><div className="systemHead"><div><span>INTERFACE REGISTER</span><h3>接口责任、设计条件与关闭状态</h3></div><div><button onClick={() => downloadCsv("fabflow-interface-register.csv", ["接口编号","起点 Tag","终点 Tag","介质","连接","尺寸","压力 MPa","温度 °C","责任专业","状态"], rows.map((item) => [item.interfaceCode,item.fromTagId ? tags.get(item.fromTagId)?.tagNo || "未知" : "外部",item.toTagId ? tags.get(item.toTagId)?.tagNo || "未知" : "外部",item.medium,item.connectionStandard,item.nominalSize,item.designPressureMpa,item.designTemperatureC,item.ownerDiscipline,item.status]))}>导出接口表</button><button onClick={() => { openMasterData("interfaces"); notify("已打开接口新增表单"); }}>＋ 新增接口</button></div></div><div className="domainInterfaceTable"><table><thead><tr><th>接口编号</th><th>Tag 边界 / 责任专业</th><th>工程条件</th><th>状态</th><th>风险</th><th></th></tr></thead><tbody>{rows.map((item) => <tr key={item.id}><td><code>{item.interfaceCode}</code></td><td><b>{item.fromTagId ? tags.get(item.fromTagId)?.tagNo || "未知 Tag" : "外部边界"} → {item.toTagId ? tags.get(item.toTagId)?.tagNo || "未知 Tag" : "外部边界"}</b><small>{item.ownerDiscipline}</small></td><td>{item.medium} · {item.connectionStandard} {item.nominalSize}<small>{item.designPressureMpa} MPa / {item.designTemperatureC}°C / {item.cleanlinessGrade}</small></td><td><i className={`interfaceState ${closed(item.status) ? "closed" : statusLabel(item.status) === "协调中" ? "working" : "pending"}`}>{statusLabel(item.status)}</i></td><td><b className={riskFor(item.id) === "高" ? "redText" : riskFor(item.id) === "中" ? "amberText" : ""}>{riskFor(item.id)}</b></td><td><button disabled={closed(item.status)} onClick={() => close(item.id)}>{closed(item.status) ? "已关闭" : "关闭接口"}</button></td></tr>)}{!rows.length && <tr><td colSpan={6}>当前项目尚无接口记录，请从介质参数录入或接口台账建立。</td></tr>}</tbody></table></div></section><section className="card gateEvidence"><div className="systemHead"><div><span>ENGINEERING VALIDATION ISSUES</span><h3>接口与设计输入问题</h3></div><b>{interfaceIssues.length} 项</b></div>{interfaceIssues.map((issue) => <button className="evidenceRow" key={issue.id} onClick={() => openMasterData(issue.entityType, issue.entityId)}><i className={issue.severity === "critical" ? "" : "working"}>{issue.severity === "critical" ? "!" : "•"}</i><span><b>{issue.title}</b><small>{issue.detail}</small></span><em className={issue.severity === "critical" ? "" : "working"}>{issue.severity === "critical" ? "阻断" : "待完善"}</em><strong>定位记录 →</strong></button>)}{!interfaceIssues.length && <div className="emptyState"><b>未发现接口级问题</b><p>联合校验未发现 Tag、介质、压力或温度冲突。</p></div>}</section></>;
 }
 
-function ReadinessView({checks,toggle,current,notify}:{checks:typeof checks;toggle:(i:number)=>void;current:typeof systems[number];notify:Notify}){
-  const done=checks.filter(x=>x[2]==="完成").length; return <><section className="card readinessHero"><div><span>SYSTEM READINESS GATE</span><h2>{current.name} · G3 / RFC 准入</h2><p>准入不是“看起来差不多”，而是每项证据、责任人和版本都能追溯。</p></div><div className="readinessScore"><b>{Math.round(done/checks.length*100)}%</b><span>{done} / {checks.length} 项完成</span></div></section><div className="readinessLayout"><section className="card gateEvidence"><div className="systemHead"><div><span>GATE EVIDENCE CHECKLIST</span><h3>系统准入证据清单</h3></div><button onClick={()=>{downloadCsv(`fabflow-${current.id}-readiness-evidence.csv`,["证据项","验收内容","状态"],checks);notify("准入证据包已生成")}}>生成证据包</button></div>{checks.map((x,i)=><button className="evidenceRow" key={x[0]} onClick={()=>toggle(i)}><i className={x[2]==="完成"?"done":x[2]==="进行中"?"working":""}>{x[2]==="完成"?"✓":x[2]==="进行中"?"•":""}</i><span><b>{x[0]}</b><small>{x[1]}</small></span><em className={x[2]==="完成"?"done":x[2]==="进行中"?"working":""}>{x[2]}</em><strong>查看证据 →</strong></button>)}</section><aside className="card permitCard"><span>PERMIT / AHJ</span><h3>许可与外部验收</h3><p><i className="done">✓</i><span><b>消防策略原则认可</b><small>AHJ Letter · Rev.B</small></span></p><p><i className="working">•</i><span><b>危化品存储许可</b><small>待补充库存计算</small></span></p><p><i>!</i><span><b>排放许可</b><small>需补充废水取样点</small></span></p><button className="fullPrimary" onClick={()=>{downloadCsv("fabflow-permit-matrix.csv",["许可事项","证据","状态"],[["消防策略原则认可","AHJ Letter Rev.B","已完成"],["危化品存储许可","库存计算","待补充"],["排放许可","废水取样点","待补充"]]);notify("许可矩阵已导出")}}>打开许可矩阵</button></aside></div></>;
+function ReadinessView({ checks, toggle, current, projectSystems, notify }: { checks: string[][]; toggle: (index: number) => void; current: DomainCard; projectSystems: SystemSummary[]; notify: Notify }) {
+  const done = checks.filter((item) => item[2] === "完成").length;
+  const totals = { tags: projectSystems.reduce((sum, item) => sum + item.tags, 0), interfaces: projectSystems.reduce((sum, item) => sum + item.interfaces, 0), bom: projectSystems.reduce((sum, item) => sum + item.bomItems, 0), tests: projectSystems.reduce((sum, item) => sum + item.testPacks, 0), blockers: projectSystems.reduce((sum, item) => sum + item.criticalIssues, 0) };
+  return <><section className="card readinessHero"><div><span>SYSTEM READINESS GATE</span><h2>{current.name} · 准入证据</h2><p>左侧为可操作的准入清单，右侧为当前项目实际数据覆盖度。</p></div><div className="readinessScore"><b>{Math.round(done / checks.length * 100)}%</b><span>{done} / {checks.length} 项人工确认</span></div></section><div className="readinessLayout"><section className="card gateEvidence"><div className="systemHead"><div><span>GATE EVIDENCE CHECKLIST</span><h3>系统准入证据清单</h3></div><button onClick={() => { downloadCsv(`fabflow-${current.id}-readiness-evidence.csv`, ["证据项","验收内容","状态"], checks); notify("准入证据清单已导出"); }}>导出清单</button></div>{checks.map((item, index) => <button className="evidenceRow" key={item[0]} onClick={() => toggle(index)}><i className={item[2] === "完成" ? "done" : item[2] === "进行中" ? "working" : ""}>{item[2] === "完成" ? "✓" : item[2] === "进行中" ? "•" : ""}</i><span><b>{item[0]}</b><small>{item[1]}</small></span><em className={item[2] === "完成" ? "done" : item[2] === "进行中" ? "working" : ""}>{item[2]}</em><strong>切换状态</strong></button>)}</section><aside className="card permitCard"><span>PROJECT DATA COVERAGE</span><h3>实际工程数据覆盖</h3><p><span><b>系统 / Tag</b><small>{projectSystems.length} 个系统 · {totals.tags} 个 Tag</small></span></p><p><span><b>接口 / BOM</b><small>{totals.interfaces} 个接口 · {totals.bom} 行 BOM</small></span></p><p><span><b>测试包</b><small>{totals.tests} 个受控测试包</small></span></p><p><span><b>联合校验阻断</b><small className={totals.blockers ? "redText" : ""}>{totals.blockers} 项</small></span></p><button className="fullPrimary" onClick={() => { openMasterData("workflowActions", current.id); notify("已打开准入审批动作"); }}>打开准入审批</button></aside></div></>;
 }
 
-function SystemTestingView({current,notify}:{current:typeof systems[number];notify:Notify}){
-  return <><div className="testKpis"><section className="card"><span>本域试验包</span><b>28</b><small>已完成 17 · 执行中 6</small></section><section className="card"><span>压力 / 气密</span><b>94%</b><small>2 包待业主见证</small></section><section className="card"><span>联锁 SAT</span><b>76%</b><small className="amberText">41 个报警点待测试</small></section><section className="card"><span>系统移交</span><b>38%</b><small className="redText">A 类 Punch 2 项</small></section></div><section className="card systemTestBoard"><div className="systemHead"><div><span>TEST & HANDOVER PACK</span><h3>{current.name} · 测试与移交包</h3></div><button onClick={()=>{openMasterData("testPacks");notify("已打开新测试包表单")}}>＋ 新建测试包</button></div>{[["TP-UTL-014","CDA / N₂ 站房压力与露点","气密 / 露点","已完成",100],["TP-UTL-022","PCW 二次泵组联动","流量 / 振动 / 联锁","执行中",72],["TP-UTL-028","应急电源切换测试","ATS / EPMS / Load Bank","待开始",18],["TP-UTL-031","Utility Header 运营移交","SOP / 培训 / 备件 / Punch","待开始",8]].map(x=><div className="systemTestRow" key={x[0]}><i className={x[3]==="已完成"?"done":x[3]==="执行中"?"working":""}>{x[3]==="已完成"?"✓":x[3]==="执行中"?"•":""}</i><span><code>{x[0]}</code><b>{x[1]}</b><small>{x[2]}</small></span><div><span><b>{x[4]}%</b>{x[3]}</span><p><i style={{width:`${x[4]}%`}}/></p></div><button onClick={()=>{openMasterData("testPacks",String(x[0]));notify(`${x[0]} 详情已打开`)}}>查看包 →</button></div>)}</section><div className="handoverGrid"><section className="card handoverDocs"><div className="systemHead"><div><span>HANDOVER DOSSIER</span><h3>运营移交文件包</h3></div><button onClick={()=>{downloadCsv(`fabflow-${current.id}-handover-index.csv`,["文件类别","内容","完成度"],[["竣工图与模型","As-built / IFC / Tag Data","92%"],["O&M 与 SOP","操作、维护、应急响应","61%"],["培训与能力证明","运营、EHS、维修团队","44%"],["备件与耗材","关键备件、保修、供应商","77%"]]);notify("移交文件目录已导出")}}>生成目录</button></div>{[["竣工图与模型","As-built / IFC / Tag Data",92],["O&M 与 SOP","操作、维护、应急响应",61],["培训与能力证明","运营、EHS、维修团队",44],["备件与耗材","关键备件、保修、供应商",77]].map(x=><div className="handoverDocRow" key={x[0]}><span><b>{x[0]}</b><small>{x[1]}</small></span><div><i style={{width:`${x[2]}%`}}/></div><em>{x[2]}%</em></div>)}</section><aside className="card handoverBlock"><span>TURNOVER BLOCKERS</span><h3>移交阻断项</h3><div className="blockerNum"><b>2</b><small>A 类 Punch</small></div><p><span>测试记录未签字</span><b>4</b></p><p><span>SOP 未批准</span><b>3</b></p><p><span>培训未完成</span><b>2</b></p><button className="fullPrimary" onClick={()=>{openMasterData("punchItems","A");notify("移交阻断项清单已打开")}}>查看阻断项</button></aside></div></>;
+function SystemTestingView({ current, systemIds, data, notify }: { current: DomainCard; systemIds: Set<string>; data: EngineeringData | null; notify: Notify }) {
+  const tests = (data?.records.testPacks ?? []).filter((item) => item.systemId && systemIds.has(item.systemId));
+  const punches = (data?.records.punchItems ?? []).filter((item) => item.systemId && systemIds.has(item.systemId) && !closed(item.status));
+  const completed = tests.filter((item) => closed(item.status)).length;
+  const signed = tests.filter((item) => Boolean(item.signedAt)).length;
+  const progress = (status: string) => closed(status) ? 100 : ["executing", "in_progress", "进行中"].includes(status.toLowerCase()) ? 60 : 10;
+  return <><div className="testKpis"><section className="card"><span>本域试验包</span><b>{tests.length}</b><small>已完成 {completed} · 未完成 {tests.length - completed}</small></section><section className="card"><span>完成率</span><b>{tests.length ? Math.round(completed / tests.length * 100) : 0}%</b><small>来自测试包状态</small></section><section className="card"><span>签字证据</span><b>{signed}</b><small>见证与签字记录</small></section><section className="card"><span>移交阻断</span><b>{punches.filter((item) => item.category.toUpperCase() === "A").length}</b><small className={punches.some((item) => item.category.toUpperCase() === "A") ? "redText" : ""}>A 类未关闭 Punch</small></section></div><section className="card systemTestBoard"><div className="systemHead"><div><span>TEST & HANDOVER PACK</span><h3>{current.name} · 测试包</h3></div><button onClick={() => { openMasterData("testPacks"); notify("已打开测试包新增表单"); }}>＋ 新建测试包</button></div>{tests.map((item) => <div className="systemTestRow" key={item.id}><i className={closed(item.status) ? "done" : statusLabel(item.status) === "协调中" ? "working" : ""}>{closed(item.status) ? "✓" : statusLabel(item.status) === "协调中" ? "•" : ""}</i><span><code>{item.packNumber}</code><b>{item.title}</b><small>{item.testType}{item.witnessRequired ? " · 需见证" : ""}{item.signedAt ? ` · 已签 ${item.signedAt}` : ""}</small></span><div><span><b>{progress(item.status)}%</b>{statusLabel(item.status)}</span><p><i style={{ width: `${progress(item.status)}%` }}/></p></div><button onClick={() => openMasterData("testPacks", item.id)}>查看包 →</button></div>)}{!tests.length && <div className="emptyState"><b>本工程域尚无测试包</b><p>请按系统建立压力、气密、冲洗、功能或联锁测试包。</p></div>}</section><section className="card domainInterfaceBoard"><div className="systemHead"><div><span>TURNOVER BLOCKERS</span><h3>未关闭 Punch</h3></div><button onClick={() => openMasterData("punchItems")}>打开 Punch 台账</button></div><div className="domainInterfaceTable"><table><thead><tr><th>编号</th><th>分类</th><th>问题</th><th>状态</th><th></th></tr></thead><tbody>{punches.map((item) => <tr key={item.id}><td><code>{item.punchNumber}</code></td><td><b className={item.category.toUpperCase() === "A" ? "redText" : "amberText"}>{item.category}</b></td><td>{item.description}</td><td>{statusLabel(item.status)}</td><td><button onClick={() => openMasterData("punchItems", item.id)}>定位 →</button></td></tr>)}{!punches.length && <tr><td colSpan={5}>本工程域当前无未关闭 Punch。</td></tr>}</tbody></table></div></section></>;
 }

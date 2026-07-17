@@ -52,7 +52,9 @@ test("critical engineering states are persisted instead of reporting fake succes
   }
   assert.match(controls, /useWorkflowStates\("schedule_constraint"\)/);
   assert.match(controls, /useWorkflowStates\("iqc_state"\)/);
-  assert.match(systems, /useWorkflowStates\("interface_state"\)/);
+  assert.match(systems, /useWorkflowStates\("system_readiness"\)/);
+  assert.match(systems, /entity: "interfaces"[\s\S]+status: "closed"/);
+  assert.match(systems, /\/api\/engineering\/validate/);
   assert.match(globalFab, /useWorkflowStates\("document_signoff"\)/);
   assert.doesNotMatch(execution, /openMasterData\("constructionWorkPackages",p\.id\);notify\(`\$\{p\.id\} 已批准放行施工`\)/);
   assert.doesNotMatch(execution, /openMasterData\("workflowActions",current\.id\);notify\(`\$\{current\.id\} 已签发 RFC 证书`\)/);

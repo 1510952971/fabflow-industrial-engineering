@@ -1,6 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { approvalRequests } from "@/db/schema";
+import { approvalRequests, releaseGates } from "@/db/schema";
 import { approvalStepDecisions } from "@/db/workflow-schema";
 import { ApiError, errorResponse } from "@/lib/api";
 import { assertAuthenticated, assertProjectAccess, authorize, PUBLIC_DEMO_PROJECT_ID, type Principal } from "@/lib/auth";
@@ -56,6 +56,7 @@ export async function POST(request: Request) {
       const final = body.action === "reject" || stepIndex >= steps.length;
       const status = body.action === "reject" ? "rejected" : final ? "approved" : "pending";
       await db.update(approvalRequests).set({ status, currentStep: final ? stepIndex : stepIndex + 1, decidedBy: final ? principal.email : null, decisionNote: body.note ?? "", decidedAt: final ? new Date().toISOString() : null, updatedAt: new Date().toISOString() }).where(eq(approvalRequests.id, body.id));
+      if (final) await db.update(releaseGates).set({ status: status === "approved" ? "frozen" : "rejected", frozenBy: status === "approved" ? principal.email : null, frozenAt: status === "approved" ? new Date().toISOString() : null, updatedAt: new Date().toISOString() }).where(eq(releaseGates.approvalRequestId, before.id));
       await writeAudit(request, principal, { projectId: before.projectId, action: "approval." + status, entityType: before.entityType, entityId: before.entityId, before, after: { status, stepIndex, stepName, note: body.note } });
       return Response.json({ id: body.id, status, currentStep: final ? stepIndex : stepIndex + 1, stepName: final ? null : steps[stepIndex] });
     }

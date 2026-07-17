@@ -1,5 +1,5 @@
 {
-  "name": "site-creator-vinext-starter",
+  "name": "fabflow-industrial-engineering",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -9,14 +9,21 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run build && node --test tests/*.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "test": "npm run build && node --experimental-strip-types --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit --incremental false",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern worker-configuration.d.ts --ignore-pattern public/pdf.worker.min.mjs",
     "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply site-creator-d1 --local --config wrangler.jsonc --persist-to .wrangler/state"
+    "db:migrate:local": "wrangler d1 migrations apply fabflow-d1 --local --config wrangler.jsonc --persist-to .wrangler/state",
+    "db:migrate:remote": "wrangler d1 migrations apply fabflow-d1 --remote --config wrangler.jsonc",
+    "cloudflare:login": "wrangler login",
+    "cloudflare:whoami": "wrangler whoami",
+    "cloudflare:types": "wrangler types --config wrangler.jsonc --env-interface CloudflareEnv",
+    "deploy:cloudflare": "vinext deploy"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",
+    "pdfjs-dist": "^6.1.200",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },

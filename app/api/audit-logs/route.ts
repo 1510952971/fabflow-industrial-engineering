@@ -13,7 +13,10 @@ export async function GET(request: Request) {
     const q = url.searchParams.get("q")?.trim();
     const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? 200) || 200));
     const conditions = [eq(auditLogs.projectId, projectId)];
-    if (q) conditions.push(or(like(auditLogs.action, "%" + q + "%"), like(auditLogs.entityType, "%" + q + "%"), like(auditLogs.actorEmail, "%" + q + "%")));
+    if (q) {
+      const searchCondition = or(like(auditLogs.action, "%" + q + "%"), like(auditLogs.entityType, "%" + q + "%"), like(auditLogs.actorEmail, "%" + q + "%"));
+      if (searchCondition) conditions.push(searchCondition);
+    }
     const rows = await getDb().select().from(auditLogs).where(and(...conditions)).orderBy(desc(auditLogs.createdAt)).limit(limit);
     if (url.searchParams.get("format") === "csv") {
       const csv = ["createdAt,actorEmail,action,entityType,entityId", ...rows.map((row) => [row.createdAt, row.actorEmail, row.action, row.entityType, row.entityId].map((value) => JSON.stringify(value ?? "")).join(","))].join("\n");

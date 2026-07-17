@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
 import { attachments } from "@/db/schema";
 import { ApiError, errorResponse } from "@/lib/api";
-import { assertAuthenticated, assertProjectAccess, authorize, PUBLIC_DEMO_PROJECT_ID } from "@/lib/auth";
+import { assertAuthenticated, assertProjectAccess, authorize, getPrincipal, hasPermission, PUBLIC_DEMO_PROJECT_ID } from "@/lib/auth";
 import { writeAudit } from "@/lib/audit";
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
@@ -12,45 +12,56 @@ const allowedEntities = new Set([
   "test_pack", "punch", "approval", "projects", "systems", "tags", "interfaces", "materials",
   "materialCompatibility", "equipmentFactories", "equipmentModels", "equipmentComponents", "equipmentPorts",
   "technicalRules", "brandRules", "bomItems", "purchaseOrders", "testPacks", "punchItems",
+  "catalogProducts", "projectProductRequirements",
 ]);
 
 export async function GET(request: Request) {
   try {
-    const principal = await authorize(request, "files:read");
+    const principal = await getPrincipal(request);
     const url = new URL(request.url);
-    const projectId = url.searchParams.get("projectId") ?? PUBLIC_DEMO_PROJECT_ID;
-    assertProjectAccess(principal, projectId);
     const downloadId = url.searchParams.get("download");
 
     if (downloadId) {
       const [file] = await getDb().select().from(attachments).where(eq(attachments.id, downloadId)).limit(1);
-      if (!file || file.projectId !== projectId) throw new ApiError(404, "附件不存在", "NOT_FOUND");
-      if (file.status === "archived") throw new ApiError(410, "附件已归档，不再提供下载", "FILE_ARCHIVED");
-      if (!env.FILES) throw new ApiError(503, "R2 文件存储尚未绑定", "R2_UNAVAILABLE");
+      if (!file) throw new ApiError(404, "Attachment not found", "NOT_FOUND");
+      const publicCatalogImage = file.projectId === PUBLIC_DEMO_PROJECT_ID && file.entityType === "catalogProducts" && file.category === "product_image";
+      if (!publicCatalogImage && !hasPermission(principal, "files:read")) throw new ApiError(403, "File read permission required", "FORBIDDEN");
+      assertProjectAccess(principal, file.projectId);
+      if (file.status === "archived") throw new ApiError(410, "Attachment archived", "FILE_ARCHIVED");
+      if (!env.FILES) throw new ApiError(503, "R2 file storage is not bound", "R2_UNAVAILABLE");
       const object = await env.FILES.get(file.objectKey);
-      if (!object) throw new ApiError(404, "R2 对象不存在", "FILE_NOT_FOUND");
+      if (!object) throw new ApiError(404, "R2 object not found", "FILE_NOT_FOUND");
+      const inline = publicCatalogImage && url.searchParams.get("inline") === "1" && file.contentType.startsWith("image/");
       return new Response(object.body, {
         headers: {
           "Content-Type": file.contentType,
-          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+          "Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+          "Cache-Control": inline ? "public, max-age=300" : "private, no-store",
           ETag: file.sha256,
         },
       });
     }
 
+    const projectId = url.searchParams.get("projectId") ?? PUBLIC_DEMO_PROJECT_ID;
     const entityType = url.searchParams.get("entityType");
     const entityId = url.searchParams.get("entityId");
+    const publicCatalogImages = projectId === PUBLIC_DEMO_PROJECT_ID && entityType === "catalogProducts";
+    if (!hasPermission(principal, "files:read") && !publicCatalogImages) throw new ApiError(403, "File read permission required", "FORBIDDEN");
+    assertProjectAccess(principal, projectId);
     const conditions = [eq(attachments.projectId, projectId)];
-    if (url.searchParams.get("includeArchived") !== "1" || !principal.roles.includes("platform_admin")) conditions.push(ne(attachments.status, "archived"));
-    if (entityType) conditions.push(eq(attachments.entityType, entityType));
+    if (publicCatalogImages) conditions.push(eq(attachments.entityType, "catalogProducts"), eq(attachments.category, "product_image"));
+    else if (entityType) conditions.push(eq(attachments.entityType, entityType));
     if (entityId) conditions.push(eq(attachments.entityId, entityId));
+    const category = url.searchParams.get("category");
+    if (!publicCatalogImages && category) conditions.push(eq(attachments.category, category));
+    if (url.searchParams.get("includeArchived") !== "1" || !principal.roles.includes("platform_admin")) conditions.push(ne(attachments.status, "archived"));
     const rows = await getDb().select().from(attachments).where(and(...conditions)).orderBy(desc(attachments.createdAt)).limit(100);
-    return Response.json({ files: rows });
+    const responseRows = publicCatalogImages ? rows.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== "objectKey"))) : rows;
+    return Response.json({ files: responseRows });
   } catch (error) {
     return errorResponse(error);
   }
 }
-
 export async function POST(request: Request) {
   try {
     const principal = await authorize(request, "files:write");
