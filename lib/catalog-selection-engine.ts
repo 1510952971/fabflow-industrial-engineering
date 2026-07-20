@@ -112,7 +112,10 @@ export function evaluateCatalogCandidate(requirement: CatalogRequirement, produc
   const requiredStandards = parseJsonArray(requirement.requiredStandardsJson);
   const requiredBrands = parseJsonArray(requirement.requiredBrandsJson);
 
-  checks.push(check("category", "产品分类", product.categoryId === requirement.categoryId, true, requirement.categoryId, product.categoryId, "产品分类与项目需求不一致"));
+  // Empty category means the global matcher is intentionally searching all categories.
+  if (requirement.categoryId) {
+    checks.push(check("category", "产品分类", product.categoryId === requirement.categoryId, true, requirement.categoryId, product.categoryId, "产品分类与项目需求不一致"));
+  }
   checks.push(check("approval", "型录审核状态", ["approved", "conditional"].includes(product.status), true, "approved / conditional", product.status, "产品尚未通过型录审核"));
   checks.push(check("system", "适用系统", !requirement.systemCode || containsEquivalent(systems, requirement.systemCode), true, requirement.systemCode, systems, "产品未批准用于该 FAB 系统"));
   if (requirement.medium) checks.push(check("medium", "介质适用性", media.length > 0 && containsEquivalent(media, requirement.medium), true, requirement.medium, media, "介质不在产品适用范围内"));

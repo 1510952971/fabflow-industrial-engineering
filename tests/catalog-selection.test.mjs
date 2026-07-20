@@ -73,3 +73,28 @@ test("catalog is global while project requirements, runs and selections are proj
   assert.match(projectPanel, /technical_specification/);
   assert.match(projectPanel, /匹配全局型录/);
 });
+test("global parameter matching supports all catalog categories", () => {
+  const globalRequirement = { ...requirement, categoryId: "", systemCode: "" };
+  const result = evaluateCatalogCandidate(globalRequirement, { ...goodProduct, categoryId: "cat-other" });
+  assert.equal(result.status, "passed");
+  assert.equal(result.score, 100);
+  assert.ok(!result.checks.some((item) => item.code === "category"));
+});
+
+test("product catalog exposes the all-library parameter matcher", async () => {
+  const page = await readFile("app/product-catalog-page.tsx", "utf8");
+  assert.match(page, /catalogQuickMatch/);
+  assert.match(page, /runQuickMatch/);
+  assert.match(page, /productApplications,materials/);
+  assert.match(page, /quickCandidates/);
+});
+test("legacy material master rows can participate in all-library matching", () => {
+  const materialRequirement = { categoryId: "", systemCode: "", designPressureMpa: 5, designTemperatureC: 60, requiredMaterialsJson: ["316L"] };
+  const materialCandidate = {
+    id: "material:316l", categoryId: "", brand: "FabFlow Approved", status: "approved", applicableSystemsJson: [], mediaJson: [],
+    minPressureMpa: 0, maxPressureMpa: 10, minTemperatureC: -20, maxTemperatureC: 100, nominalSize: null, connectionStandard: null,
+    wettedMaterialsJson: ["316L", "EP"], certificationsJson: [], standardsJson: [], specificationsJson: {},
+  };
+  const result = evaluateCatalogCandidate(materialRequirement, materialCandidate);
+  assert.equal(result.status, "passed");
+});

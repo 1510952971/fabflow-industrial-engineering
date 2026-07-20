@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { openMasterData } from "@/lib/client-actions";
 import { facilityDomains, facilitySystems, getFacilitySystem } from "@/lib/facility-systems";
 import { validateProductSpecifications, type ProductParameterDefinition } from "@/lib/product-catalog";
+import { matchCatalog, type CatalogCandidate, type CatalogMatch } from "@/lib/catalog-selection-engine";
 import { ProjectCatalogSelection } from "./project-catalog-selection";
 
 type Notify = (message: string) => void;
@@ -26,6 +27,8 @@ type Product = {
 };
 type Variant = { id: string; productId: string; sku: string; name: string; leadTimeWeeks?: number | null; unitPriceCny?: number | null; status: string };
 type Application = { id: string; productId: string; systemCode: string; service: string; medium: string; suitability: string; limitations: string };
+type Material = { id: string; manufacturer: string; code: string; name: string; grade: string; baseMaterial: string; surfaceFinish: string; cleanlinessGrade: string; maxPressureMpa: number; minTemperatureC: number; maxTemperatureC: number; certificationsJson: string; status: string };
+type QuickMatchInput = { systemCode: string; categoryId: string; medium: string; pressure: string; temperature: string; nominalSize: string; connectionStandard: string; materialsText: string; brand: string; standardsText: string; certificationsText: string; dynamic: Record<string, unknown> };
 type Draft = Omit<Product, "id" | "applicableSystemsJson" | "mediaJson" | "wettedMaterialsJson" | "certificationsJson" | "standardsJson" | "specificationsJson" | "imagesJson"> & {
   id?: string; systems: string[]; mediaText: string; materialsText: string; certificationsText: string; standardsText: string;
 };
@@ -79,6 +82,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [variants, setVariants] = useState<Variant[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [materials, setMaterials] = useState<Material[]>([]);
   const [canWriteGlobal, setCanWriteGlobal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -94,6 +98,8 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const [imageFilesByProduct, setImageFilesByProduct] = useState<Record<string, Attachment[]>>({});
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [removedImageIds, setRemovedImageIds] = useState<string[]>([]);
+  const [quickInput, setQuickInput] = useState<QuickMatchInput>({ systemCode: "all", categoryId: "all", medium: "", pressure: "", temperature: "", nominalSize: "", connectionStandard: "", materialsText: "", brand: "", standardsText: "", certificationsText: "", dynamic: {} });
+  const [quickMatches, setQuickMatches] = useState<CatalogMatch[]>([]);
 
   const loadImages = async () => {
     try {
@@ -110,14 +116,15 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const load = async () => {
     setLoading(true); setError("");
     try {
-      const response = await fetch("/api/master-data?entities=productCategories,productParameterDefinitions,catalogProducts,productVariants,productApplications&pageSize=500", { cache: "no-store" });
-      const payload = await response.json() as { error?: string; data?: { productCategories?: Category[]; productParameterDefinitions?: ProductParameterDefinition[]; catalogProducts?: Product[]; productVariants?: Variant[]; productApplications?: Application[] }; permissions?: { canWriteGlobal?: boolean } };
+      const response = await fetch("/api/master-data?entities=productCategories,productParameterDefinitions,catalogProducts,productVariants,productApplications,materials&pageSize=500", { cache: "no-store" });
+      const payload = await response.json() as { error?: string; data?: { productCategories?: Category[]; productParameterDefinitions?: ProductParameterDefinition[]; catalogProducts?: Product[]; productVariants?: Variant[]; productApplications?: Application[]; materials?: Material[] }; permissions?: { canWriteGlobal?: boolean } };
       if (!response.ok) throw new Error(payload.error || "产品型录加载失败");
       setCategories((payload.data?.productCategories ?? []).filter((item) => item.status !== "archived"));
       setDefinitions((payload.data?.productParameterDefinitions ?? []).filter((item) => item.status !== "archived"));
       setProducts((payload.data?.catalogProducts ?? []).filter((item) => item.status !== "archived"));
       setVariants((payload.data?.productVariants ?? []).filter((item) => item.status !== "archived"));
       setApplications(payload.data?.productApplications ?? []);
+      setMaterials(payload.data?.materials ?? []);
       setCanWriteGlobal(Boolean(payload.permissions?.canWriteGlobal));
       void loadImages();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "产品型录加载失败"); }
@@ -141,6 +148,53 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   }), [products, categoryMap, systemCode, categoryId, status, query]);
 
   const currentDefinitions = definitionsFor(draft.categoryId);
+  const quickDefinitions = quickInput.categoryId === "all" ? [] : definitionsFor(quickInput.categoryId);
+  const splitQuickList = (value: string) => value.split(/[,，;；\n]+/).map((item) => item.trim()).filter(Boolean);
+  const toQuickNumber = (value: string) => value.trim() === "" ? null : Number(value);
+  const quickCandidates = useMemo<CatalogCandidate[]>(() => [
+    ...products.map((product) => product as unknown as CatalogCandidate),
+    ...materials.map((material) => ({
+      id: "material:" + material.id, categoryId: "", brand: material.manufacturer, status: material.status, applicableSystemsJson: "[]", mediaJson: "[]",
+      minPressureMpa: 0, maxPressureMpa: material.maxPressureMpa, minTemperatureC: material.minTemperatureC, maxTemperatureC: material.maxTemperatureC,
+      nominalSize: null, connectionStandard: null, wettedMaterialsJson: JSON.stringify([material.grade, material.baseMaterial]),
+      certificationsJson: material.certificationsJson, standardsJson: "[]", specificationsJson: JSON.stringify({ surfaceFinish: material.surfaceFinish, cleanlinessGrade: material.cleanlinessGrade }),
+    })),
+  ], [products, materials]);
+  const quickRows = useMemo(() => quickMatches.map((result) => ({
+    result, product: products.find((item) => item.id === result.productId) ?? null,
+    material: materials.find((item) => "material:" + item.id === result.productId) ?? null,
+  })), [quickMatches, products, materials]);
+  const runQuickMatch = () => {
+    const hasInput = [quickInput.medium, quickInput.pressure, quickInput.temperature, quickInput.nominalSize, quickInput.connectionStandard, quickInput.materialsText, quickInput.brand, quickInput.standardsText, quickInput.certificationsText].some(Boolean) || Object.keys(quickInput.dynamic).length > 0 || quickInput.categoryId !== "all" || quickInput.systemCode !== "all";
+    if (!hasInput) { notify("请至少输入一个选型条件；系统会在全部型录产品和材料主档中匹配"); return; }
+    const requiredSpecifications = Object.fromEntries(Object.entries(quickInput.dynamic).filter(([, value]) => value !== "" && value !== null && value !== undefined).map(([key, value]) => {
+      const definition = quickDefinitions.find((item) => item.key === key);
+      return [key, definition?.dataType === "number" ? { min: Number(value) } : { equals: value }];
+    }));
+    const requirement = {
+      categoryId: quickInput.categoryId === "all" ? "" : quickInput.categoryId, systemCode: quickInput.systemCode === "all" ? "" : quickInput.systemCode,
+      medium: quickInput.medium.trim() || null, designPressureMpa: toQuickNumber(quickInput.pressure), designTemperatureC: toQuickNumber(quickInput.temperature),
+      nominalSize: quickInput.nominalSize.trim() || null, connectionStandard: quickInput.connectionStandard.trim() || null,
+      requiredMaterialsJson: splitQuickList(quickInput.materialsText), requiredBrandsJson: splitQuickList(quickInput.brand),
+      requiredStandardsJson: splitQuickList(quickInput.standardsText), requiredCertificationsJson: splitQuickList(quickInput.certificationsText), requiredSpecificationsJson: requiredSpecifications,
+    };
+    const matches = matchCatalog(requirement, quickCandidates).map((item) => {
+      const checks = item.checks.map((check) => check.code === "medium" && check.status === "fail" && /(specialty|semiconductor.*gas|uhp.*gas|process gas|all gas)/i.test(check.actual)
+        ? { ...check, status: "warning" as const, message: "产品仅标注介质大类，需由工程师确认具体介质兼容性" }
+        : check);
+      const failures = checks.filter((check) => check.status === "fail");
+      const warnings = checks.filter((check) => check.status === "warning");
+      const approvalOnly = failures.length === 1 && failures[0].code === "approval";
+      if (approvalOnly) return { ...item, checks, status: "attention" as const, score: Math.max(82 - warnings.length * 3, 70) };
+      if (!failures.length) return { ...item, checks, status: warnings.length ? "attention" as const : "passed" as const, score: Math.max(100 - warnings.length * 7, 0) };
+      return { ...item, checks };
+    }).sort((a, b) => {
+      const rank = { passed: 0, attention: 1, blocked: 2 };
+      return rank[a.status] - rank[b.status] || Number(a.productId.startsWith("material:")) - Number(b.productId.startsWith("material:")) || b.score - a.score;
+    });
+    setQuickMatches(matches);
+    notify("已完成全库匹配：" + matches.filter((item) => item.status !== "blocked").length + " 个可用候选，" + matches.filter((item) => item.status === "blocked").length + " 个被规则拦截");
+  };
   const editorValidation = validateProductSpecifications(specifications, currentDefinitions);
   const groupedDefinitions = (() => {
     const groups = new Map<string, ProductParameterDefinition[]>();
@@ -289,6 +343,25 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
     <div className="moduleTop productCatalogTop"><div><span>GLOBAL FAB PRODUCT CATALOG</span><h2>全局设备材料型录库</h2><p>全公司项目共享同一份产品主档，不随项目复制；项目依据各自上传的技术规格书，从这里匹配并引用合格产品。</p></div><div className="moduleActions"><button className="softButton" onClick={() => openMasterData("productCategories")}>分类与参数模板</button><button className="softButton" onClick={() => openMasterData("productVariants")}>型号 / 选配</button><button className="primaryButton" disabled={!canWriteGlobal} title={canWriteGlobal ? "录入型录产品" : "平台管理员登录后开放"} onClick={startNew}>＋ 录入产品</button></div></div>
     {error && !editorOpen && <div className="masterError"><i>!</i><span><b>产品型录需要处理</b><small>{error}</small></span><button onClick={() => setError("")}>×</button></div>}
     <ProjectCatalogSelection categories={categories} notify={notify} />
+    <section className="card catalogQuickMatch">
+      <header className="catalogQuickMatchHeader"><div><span>PARAMETER AUTO MATCH</span><h3>输入参数，自动配对全库产品</h3><p>覆盖全部产品分类与材料主档；先按通用工程条件筛选，再按分类专用规格逐项校验，并显示每条匹配依据。</p></div><b>全库 {products.length || "—"} 条产品 · {materials.length || "—"} 条材料主档</b></header>
+      <div className="catalogQuickForm">
+        <label><span>适用系统</span><select value={quickInput.systemCode} onChange={(event) => setQuickInput((current) => ({ ...current, systemCode: event.target.value }))}><option value="all">全部系统</option>{facilitySystems.map((item) => <option value={item.code} key={item.id}>{item.code} · {item.name}</option>)}</select></label>
+        <label><span>产品分类</span><select value={quickInput.categoryId} onChange={(event) => setQuickInput((current) => ({ ...current, categoryId: event.target.value, dynamic: {} }))}><option value="all">全部分类</option>{categories.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+        <label><span>介质</span><input value={quickInput.medium} onChange={(event) => setQuickInput((current) => ({ ...current, medium: event.target.value }))} placeholder="例如 SiH4 / UPW / CDA" /></label>
+        <label><span>设计压力 MPa</span><input type="number" step="any" value={quickInput.pressure} onChange={(event) => setQuickInput((current) => ({ ...current, pressure: event.target.value }))} placeholder="要求值" /></label>
+        <label><span>设计温度 °C</span><input type="number" step="any" value={quickInput.temperature} onChange={(event) => setQuickInput((current) => ({ ...current, temperature: event.target.value }))} placeholder="要求值" /></label>
+        <label><span>公称尺寸 / 规格</span><input value={quickInput.nominalSize} onChange={(event) => setQuickInput((current) => ({ ...current, nominalSize: event.target.value }))} placeholder="例如 1/4 in / DN25" /></label>
+        <label><span>接口标准</span><input value={quickInput.connectionStandard} onChange={(event) => setQuickInput((current) => ({ ...current, connectionStandard: event.target.value }))} placeholder="VCR / ASME / DIN" /></label>
+        <label><span>接液 / 内部材料</span><input value={quickInput.materialsText} onChange={(event) => setQuickInput((current) => ({ ...current, materialsText: event.target.value }))} placeholder="316L VAR, PCTFE, FFKM" /></label>
+        <label><span>品牌（可多选）</span><input value={quickInput.brand} onChange={(event) => setQuickInput((current) => ({ ...current, brand: event.target.value }))} placeholder="逗号分隔" /></label>
+        <label><span>标准（可多选）</span><input value={quickInput.standardsText} onChange={(event) => setQuickInput((current) => ({ ...current, standardsText: event.target.value }))} placeholder="SEMI F20, IEC ..." /></label>
+        <label><span>认证（可多选）</span><input value={quickInput.certificationsText} onChange={(event) => setQuickInput((current) => ({ ...current, certificationsText: event.target.value }))} placeholder="CE, UL, ATEX ..." /></label>
+      </div>
+      {quickDefinitions.length > 0 && <div className="catalogQuickDynamic"><b>{categoryMap.get(quickInput.categoryId)?.name} 专用参数</b><div>{quickDefinitions.map((field) => { const value = quickInput.dynamic[field.key] ?? ""; const options = parseArray(field.optionsJson); return field.dataType === "select" ? <label key={field.key}><span>{field.label}{field.unit ? " (" + field.unit + ")" : ""}</span><select value={String(value)} onChange={(event) => setQuickInput((current) => ({ ...current, dynamic: { ...current.dynamic, [field.key]: event.target.value } }))}><option value="">不限</option>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label> : <label key={field.key}><span>{field.label}{field.unit ? " (" + field.unit + ")" : ""}</span><input type={field.dataType === "number" ? "number" : "text"} step={field.dataType === "number" ? "any" : undefined} value={String(value)} onChange={(event) => setQuickInput((current) => ({ ...current, dynamic: { ...current.dynamic, [field.key]: field.dataType === "number" && event.target.value !== "" ? Number(event.target.value) : event.target.value } }))} placeholder="不限" /></label>; })}</div></div>}
+      <footer className="catalogQuickActions"><small>空白字段代表不限；匹配结果按“通过 → 需人工确认 → 拦截”排序。</small><div><button onClick={() => { setQuickMatches([]); setQuickInput({ systemCode: "all", categoryId: "all", medium: "", pressure: "", temperature: "", nominalSize: "", connectionStandard: "", materialsText: "", brand: "", standardsText: "", certificationsText: "", dynamic: {} }); }}>清空</button><button className="primaryButton" onClick={runQuickMatch}>自动匹配产品</button></div></footer>
+      {quickRows.length > 0 && <div className="catalogQuickResults"><div className="catalogQuickResultsTitle"><b>匹配结果</b><span>显示前 {Math.min(quickRows.length, 20)} 条，共 {quickRows.length} 条</span></div>{quickRows.slice(0, 20).map(({ result, product, material }) => { const name = product?.productName || material?.name || result.productId; const code = product ? product.brand + " · " + product.model : material ? "材料主档 · " + material.manufacturer + " · " + material.grade : ""; const category = product ? categoryMap.get(product.categoryId)?.name || "未分类" : "材料"; return <article className={"quickMatchResult " + result.status} key={result.productId}><header><strong>{result.score}</strong><div><b>{name}</b><small>{category} · {code}</small></div><em>{result.status === "passed" ? "推荐" : result.status === "attention" ? "需确认" : "不符合"}</em></header><div className="quickMatchChecks">{result.checks.slice(0, 5).map((check) => <p className={check.status} key={check.code}><i>{check.status === "pass" ? "✓" : check.status === "warning" ? "!" : "×"}</i><span><b>{check.label}</b><small>{check.status === "pass" ? "符合" : check.message} · {check.actual || "未填写"}</small></span></p>)}</div><footer>{product && <button onClick={() => { setDetailId(product.id); document.getElementById("catalog-product-" + product.id)?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>查看产品详情</button>}{material && <button onClick={() => notify(material.code + " 已定位到材料主档，可在项目技术规格选型中引用")}>查看材料主档</button>}</footer></article>; })}</div>}
+    </section>
     <section className="card catalogCoverage"><div><span>产品分类</span><b>{categories.length}<em> 类</em></b><small>管理员可继续扩展</small></div><div><span>规格字段</span><b>{definitions.length}<em> 项</em></b><small>按分类动态显示</small></div><div><span>产品主档</span><b>{products.length}<em> 个</em></b><small>{products.filter((item) => item.status === "approved").length} 个已批准</small></div><div><span>来源可追溯</span><b>{sourcedCount}<em> / {products.length}</em></b><small>本地型录或厂家正式链接</small></div></section>
     <section className="card catalogFilter"><label className="masterSearch">⌕<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索品牌、型号、产品名称、来源文件…"/><kbd>{shown.length}</kbd></label><div>
       <label><span>适用系统</span><select value={systemCode} onChange={(event) => setSystemCode(event.target.value)}><option value="all">全部 FAB 系统</option>{facilityDomains.map((domain) => <optgroup label={`${domain.id} · ${domain.name}`} key={domain.id}>{facilitySystems.filter((item) => item.domainId === domain.id).map((system) => <option value={system.code} key={system.id}>{system.code} · {system.name}</option>)}</optgroup>)}</select></label>
@@ -298,7 +371,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
     {loading ? <div className="catalogLoading"><i/><i/><i/></div> : shown.length ? <div className="productCatalogGrid">{shown.map((product) => {
       const category = categoryMap.get(product.categoryId); const systems = parseArray(product.applicableSystemsJson); const validation = completeness(product);
       const productVariants = variants.filter((item) => item.productId === product.id); const productApplications = applications.filter((item) => item.productId === product.id); const detail = detailId === product.id; const productImages = referencedImages(product);
-      return <article className={`card productCatalogCard ${detail ? "expanded" : ""}`} key={product.id}><header><div className="catalogProductIcon">{productImages[0] ? <img src={imageUrl(productImages[0].id)} alt={`${product.brand} ${product.model}`} loading="lazy" /> : category?.icon || "◇"}</div><div><small>{category?.name || "未分类"} · {product.productCode}</small><h3>{product.productName}</h3><p>{product.brand} · {product.model}</p></div><span className={`catalogStatus ${product.status}`}>{product.status === "approved" ? "已批准" : product.status === "conditional" ? "有条件" : product.status === "pending_review" ? "待审核" : "待复核"}</span></header>
+      return <article id={"catalog-product-" + product.id} className={`card productCatalogCard ${detail ? "expanded" : ""}`} key={product.id}><header><div className="catalogProductIcon">{productImages[0] ? <img src={imageUrl(productImages[0].id)} alt={`${product.brand} ${product.model}`} loading="lazy" /> : category?.icon || "◇"}</div><div><small>{category?.name || "未分类"} · {product.productCode}</small><h3>{product.productName}</h3><p>{product.brand} · {product.model}</p></div><span className={`catalogStatus ${product.status}`}>{product.status === "approved" ? "已批准" : product.status === "conditional" ? "有条件" : product.status === "pending_review" ? "待审核" : "待复核"}</span></header>
         <div className="catalogSystemChips">{systems.slice(0, 5).map((code) => { const system = getFacilitySystem(code); return <span className={`chip ${system?.color || "gray"}`} key={code}>{code}</span>; })}{systems.length > 5 && <em>+{systems.length - 5}</em>}</div>
         <div className="catalogKeySpecs"><p><span>压力范围</span><b>{product.minPressureMpa ?? "—"} ～ {product.maxPressureMpa ?? "—"} MPa</b></p><p><span>温度范围</span><b>{product.minTemperatureC ?? "—"} ～ {product.maxTemperatureC ?? "—"} °C</b></p><p><span>接口 / 尺寸</span><b>{[product.connectionStandard, product.nominalSize].filter(Boolean).join(" · ") || "待录入"}</b></p><p><span>接液 / 内部材质</span><b>{listText(product.wettedMaterialsJson) || "待录入"}</b></p></div>
         <div className={`catalogCompleteness ${validation.valid ? "complete" : "incomplete"}`}><i>{validation.valid ? "✓" : "!"}</i><span><b>{validation.valid ? "分类规格完整" : `缺少或错误 ${validation.issues.length} 项`}</b><small>{validation.valid ? "可进入技术审核" : validation.issues.slice(0, 2).map((item) => item.label).join("、")}</small></span></div>
