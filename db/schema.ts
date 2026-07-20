@@ -397,6 +397,19 @@ export const catalogProducts = sqliteTable("catalog_products", {
   index("catalog_products_status_idx").on(table.status),
 ]);
 
+/**
+ * Global source registry for the shared catalogue. A source is deliberately
+ * not a product: one PDF can describe many models and one model can be
+ * evidenced by a catalogue, a submittal drawing and a parameter sheet.
+ */
+export const catalogSourceDocuments = sqliteTable("catalog_source_documents", {
+  id: text("id").primaryKey(), sourceKey: text("source_key").notNull(), sourceRoot: text("source_root").notNull().default(""), relativePath: text("relative_path").notNull(), fileName: text("file_name").notNull(), extension: text("extension").notNull(), contentType: text("content_type").notNull().default("application/octet-stream"), sizeBytes: integer("size_bytes").notNull().default(0), modifiedAt: text("modified_at"), sha256: text("sha256"), documentType: text("document_type").notNull().default("other"), parserType: text("parser_type").notNull().default("manual_review"), manufacturerHint: text("manufacturer_hint").notNull().default(""), productFamilyHint: text("product_family_hint").notNull().default(""), modelHint: text("model_hint").notNull().default(""), sourceRevision: text("source_revision").notNull().default(""), extractionStatus: text("extraction_status").notNull().default("queued"), extractedJson: text("extracted_json").notNull().default("{}"), errorMessage: text("error_message"), createdBy: text("created_by").notNull(), createdAt: createdAt(), updatedAt: updatedAt(),
+}, (table) => [uniqueIndex("catalog_source_documents_key_uq").on(table.sourceKey), index("catalog_source_documents_type_status_idx").on(table.documentType, table.extractionStatus), index("catalog_source_documents_manufacturer_idx").on(table.manufacturerHint), index("catalog_source_documents_path_idx").on(table.relativePath)]);
+
+export const catalogSourceCandidates = sqliteTable("catalog_source_candidates", {
+  id: text("id").primaryKey(), sourceDocumentId: text("source_document_id").notNull().references(() => catalogSourceDocuments.id), candidateKey: text("candidate_key").notNull(), productName: text("product_name").notNull().default(""), manufacturer: text("manufacturer").notNull().default(""), brand: text("brand").notNull().default(""), model: text("model").notNull().default(""), categoryHint: text("category_hint").notNull().default(""), systemsJson: text("systems_json").notNull().default("[]"), parametersJson: text("parameters_json").notNull().default("{}"), confidence: integer("confidence").notNull().default(0), status: text("status").notNull().default("needs_review"), promotedProductId: text("promoted_product_id").references(() => catalogProducts.id), reviewNote: text("review_note").notNull().default(""), createdBy: text("created_by").notNull(), createdAt: createdAt(), updatedAt: updatedAt(),
+}, (table) => [uniqueIndex("catalog_source_candidates_key_uq").on(table.candidateKey), index("catalog_source_candidates_source_status_idx").on(table.sourceDocumentId, table.status), index("catalog_source_candidates_model_idx").on(table.model)]);
+
 export const productVariants = sqliteTable("product_variants", {
   id: text("id").primaryKey(),
   productId: text("product_id").notNull().references(() => catalogProducts.id),

@@ -68,6 +68,7 @@ npm run build
 
 - `npm run dev`：启动本地开发服务器。
 - `npm run db:migrate:local`：初始化或升级本地 D1。
+- `npm run catalog:manifest`：扫描 `材料型录/` 并生成可在页面导入的资料清单。
 - `npm run db:generate`：数据库结构变更后生成迁移。
 - `npm test`：执行构建与回归测试。
 - `npm run build`：生成 Cloudflare Worker 发布产物。

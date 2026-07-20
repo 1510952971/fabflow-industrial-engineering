@@ -9,6 +9,7 @@ import { facilityDomains, facilitySystems, getFacilitySystem } from "@/lib/facil
 import { validateProductSpecifications, type ProductParameterDefinition } from "@/lib/product-catalog";
 import { matchCatalog, type CatalogCandidate, type CatalogMatch } from "@/lib/catalog-selection-engine";
 import { ProjectCatalogSelection } from "./project-catalog-selection";
+import { CatalogSourceImport, type CatalogSourceCandidate } from "./catalog-source-import";
 
 type Notify = (message: string) => void;
 type Category = { id: string; code: string; name: string; discipline: string; applicableSystemsJson: string; icon: string; description: string; status: string };
@@ -336,11 +337,20 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   };
 
 
+  const startFromCandidate = (candidate: CatalogSourceCandidate) => {
+    if (!canWriteGlobal) { notify("请使用平台管理员账号录入全局型录产品"); return; }
+    const source = parseObject(candidate.parametersJson);
+    const categoryId = categories.find((item) => candidate.categoryHint && item.name.toLowerCase().includes(candidate.categoryHint.toLowerCase()))?.id ?? categories[0]?.id ?? "";
+    setDraft({ ...emptyDraft(categoryId), manufacturer: candidate.manufacturer, brand: candidate.brand, productName: candidate.productName, model: candidate.model, sourceDocument: typeof source.sourceFile === "string" ? source.sourceFile : "" });
+    setSpecifications({}); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true);
+    notify("候选已带入产品录入，请补齐分类、系统、参数和来源页码");
+  };
+
   const completeness = (product: Product) => validateProductSpecifications(product.specificationsJson, definitionsFor(product.categoryId));
   const sourcedCount = products.filter((item) => item.sourceDocument || item.sourceUrl).length;
 
   return <>
-    <div className="moduleTop productCatalogTop"><div><span>GLOBAL FAB PRODUCT CATALOG</span><h2>全局设备材料型录库</h2><p>全公司项目共享同一份产品主档，不随项目复制；项目依据各自上传的技术规格书，从这里匹配并引用合格产品。</p></div><div className="moduleActions"><button className="softButton" onClick={() => openMasterData("productCategories")}>分类与参数模板</button><button className="softButton" onClick={() => openMasterData("productVariants")}>型号 / 选配</button><button className="primaryButton" disabled={!canWriteGlobal} title={canWriteGlobal ? "录入型录产品" : "平台管理员登录后开放"} onClick={startNew}>＋ 录入产品</button></div></div>
+    <div className="moduleTop productCatalogTop"><div><span>GLOBAL FAB PRODUCT CATALOG</span><h2>全局设备材料型录库</h2><p>全公司项目共享同一份产品主档，不随项目复制；项目依据各自上传的技术规格书，从这里匹配并引用合格产品。</p></div><div className="moduleActions"><button className="softButton" onClick={() => openMasterData("productCategories")}>分类与参数模板</button><button className="softButton" onClick={() => openMasterData("productVariants")}>型号 / 选配</button><CatalogSourceImport canWriteGlobal={canWriteGlobal} notify={notify} onUseCandidate={startFromCandidate} /><button className="primaryButton" disabled={!canWriteGlobal} title={canWriteGlobal ? "录入型录产品" : "平台管理员登录后开放"} onClick={startNew}>＋ 录入产品</button></div></div>
     {error && !editorOpen && <div className="masterError"><i>!</i><span><b>产品型录需要处理</b><small>{error}</small></span><button onClick={() => setError("")}>×</button></div>}
     <ProjectCatalogSelection categories={categories} notify={notify} />
     <section className="card catalogQuickMatch">

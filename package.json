@@ -18,7 +18,8 @@
     "cloudflare:login": "wrangler login",
     "cloudflare:whoami": "wrangler whoami",
     "cloudflare:types": "wrangler types --config wrangler.jsonc --env-interface CloudflareEnv",
-    "deploy:cloudflare": "vinext deploy"
+    "deploy:cloudflare": "vinext deploy",
+    "catalog:manifest": "node --experimental-strip-types scripts/build-catalog-source-manifest.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
