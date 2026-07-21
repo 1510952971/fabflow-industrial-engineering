@@ -71,7 +71,7 @@ export function LoginModal({ open, onClose, onSuccess }: {
   const unavailable = mode === "bootstrap" && !bootstrapEnabled;
   return <div className="authOverlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="authModal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-      <div className="authBrand"><i/><div><b>FabFlow</b><span>工程设计与选型平台</span></div></div>
+      <div className="authBrand"><i/><div><b>Facility Construction</b><span>Management Software</span></div></div>
       <button className="authClose" onClick={onClose} aria-label="关闭登录窗口">×</button>
       <div className="authHeading">
         <span>{mode === "bootstrap" ? "ADMIN INITIALIZATION" : "SECURE SIGN IN"}</span>

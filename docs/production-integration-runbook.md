@@ -1,4 +1,4 @@
-# FabFlow 正式生产对接手册
+# Facility Construction Management Software 正式生产对接手册
 
 ## 1. 企业需提供的输入
 
@@ -15,7 +15,7 @@
 
 ## 2. 拉取接口契约
 
-FabFlow 对上游执行 HTTPS GET，请求自动携带配置的游标和 `limit=500`。典型响应：
+Facility Construction Management Software 对上游执行 HTTPS GET，请求自动携带配置的游标和 `limit=500`。典型响应：
 
 ```json
 {
@@ -65,12 +65,12 @@ FabFlow 对上游执行 HTTPS GET，请求自动携带配置的游标和 `limit=
 - `file`：R2 中的待签原件；
 - `title`：签章任务标题；
 - `signers`：按顺序排列的签署人 JSON；
-- `clientEnvelopeId`：FabFlow 信封主键；
+- `clientEnvelopeId`：Facility Construction Management Software 信封主键；
 - `callbackUrl`：状态回调地址。
 
 提交响应需返回 `{ "id": "外部信封号", "status": "submitted" }`。回调 JSON 至少包含 `externalEnvelopeId` 和 `status`；完成时必须包含与签章服务同源的 HTTPS `signedFileUrl`。回调头 `x-fabflow-signature` 为原始 JSON 正文的 HMAC-SHA256。签后 PDF 会写回 R2，D1 保存新附件版本、SHA-256、签署状态和审计记录。
 
-若使用 Adobe Acrobat Sign、DocuSign 或境内电子合同平台，应在通用契约前增加供应商适配网关，不应把供应商私有协议直接散落在 FabFlow 页面代码中。
+若使用 Adobe Acrobat Sign、DocuSign 或境内电子合同平台，应在通用契约前增加供应商适配网关，不应把供应商私有协议直接散落在 Facility Construction Management Software 页面代码中。
 
 ## 5. 上线门禁
 

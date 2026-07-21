@@ -1,6 +1,6 @@
-# FabFlow 操作说明
+# Facility Construction Management Software 操作说明
 
-本文适用于本地开发版和部署后的 FabFlow 厂务工程与设备材料选型系统。系统遵循“全局型录共享、项目条件隔离、选型结果引用、校验证据留痕”的数据原则。
+本文适用于本地开发版和部署后的 Facility Construction Management Software 厂务工程与设备材料选型系统。系统遵循“全局型录共享、项目条件隔离、选型结果引用、校验证据留痕”的数据原则。
 
 ## 1. 首次安装与启动
 
@@ -120,7 +120,7 @@ npm run db:migrate:local
 
 ### 浏览器显示 `Cannot read properties of null (reading 'use')`
 
-先关闭所有旧的 FabFlow 开发服务，确认终端没有第二个 `vinext dev`，再重新运行 `npm run dev` 并打开终端实际显示的端口。旧服务占用 3000 时，新服务会自动改用 3001；继续访问旧的 3000 会看到旧错误页面。
+先关闭所有旧的 Facility Construction Management Software 开发服务，确认终端没有第二个 `vinext dev`，再重新运行 `npm run dev` 并打开终端实际显示的端口。旧服务占用 3000 时，新服务会自动改用 3001；继续访问旧的 3000 会看到旧错误页面。
 
 ### 数据录入按钮不可用
 

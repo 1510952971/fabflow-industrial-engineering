@@ -1,4 +1,4 @@
-# FabFlow 独立部署说明
+# Facility Construction Management Software 独立部署说明
 
 本项目直接部署到 Cloudflare Workers，并使用 Cloudflare D1 与 R2。项目不依赖 Codex Sites，也不需要绑定 Codex 账号。
 

@@ -101,7 +101,7 @@ export default function Home() {
   }, []);
   return <main className={dark ? "app dark" : "app"}>
     <aside className={collapsed ? "sidebar collapsed" : "sidebar"}>
-      <div className="brand"><div className="brandmark"><i/><i/><i/></div><div><b>FabFlow</b><span>厂务流体智能选型</span></div></div>
+      <div className="brand"><div className="brandmark"><i/><i/><i/></div><div><b>Facility Construction</b><span>Management Software</span></div></div>
       <button className="collapse" onClick={()=>setCollapsed(!collapsed)} aria-label="折叠菜单">{collapsed ? "›" : "‹"}</button>
       <nav className="navGroups">{navGroups.map(group=><div className="navGroup" key={group.id}><button className="navGroupTitle" onClick={()=>setOpenGroups(x=>({...x,[group.id]:!x[group.id]}))}><span><em>{group.icon}</em><b>{group.title}</b></span><i>{openGroups[group.id]?"−":"＋"}</i></button>{openGroups[group.id]&&<div className="navGroupItems">{group.items.map(([icon,label])=><button key={label} className={active===label?"active":""} onClick={()=>activate(label,group.id)} title={label}><em>{icon}</em><span>{label}</span>{label==="合规校验中心"&&<small>3</small>}</button>)}</div>}</div>)}</nav>
       <div className="sidebarBottom">

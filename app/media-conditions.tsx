@@ -243,7 +243,7 @@ export function MediaConditionsPage({ notify }: { notify: Notify }) {
     downloadText(
       "media-design-basis-" + (tagNo || Date.now()) + ".txt",
       [
-        "FabFlow 介质工况设计输入",
+        "Facility Construction Management Software 介质工况设计输入",
         "系统：" + activeSystem.name + " (" + activeSystem.code + ")",
         "Tag：" + tagNo,
         "介质：" + medium + " / " + phase,

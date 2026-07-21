@@ -34,7 +34,7 @@ export function ChangePasswordModal({ open, onClose, onSuccess }: {
 
   return <div className="authOverlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
     <section className="authModal" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
-      <div className="authBrand"><i/><div><b>FabFlow</b><span>账号安全中心</span></div></div>
+      <div className="authBrand"><i/><div><b>Facility Construction</b><span>Management Software · 账号安全中心</span></div></div>
       <button className="authClose" onClick={close} aria-label="关闭修改密码窗口">×</button>
       <div className="authHeading"><span>ACCOUNT SECURITY</span><h2 id="change-password-title">修改我的密码</h2><p>必须验证当前密码。修改成功后所有会话失效，请使用新密码重新登录。</p></div>
       <form onSubmit={submit}>

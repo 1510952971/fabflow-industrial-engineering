@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("build emits the FabFlow product worker", async () => {
+test("build emits the Facility Construction Management Software product worker", async () => {
   await access("dist/server/index.js");
   const page = await readFile("app/page.tsx", "utf8");
   const layout = await readFile("app/layout.tsx", "utf8");
-  assert.match(page, /FabFlow/);
+  assert.match(page, /Facility Construction/);
+  assert.match(page, /Management Software/);
   assert.match(page, /动力公用工程/);
-  assert.match(layout, /FabFlow · 厂务流体智能选型系统/);
+  assert.match(layout, /Facility Construction Management Software/);
   assert.doesNotMatch(page, /Your site is taking shape|Codex is building|Starter Project|SkeletonPreview|react-loading-skeleton/i);
 });
 

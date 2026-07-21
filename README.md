@@ -1,4 +1,4 @@
-# FabFlow 厂务工程与设备材料选型系统
+# Facility Construction Management Software 厂务工程与设备材料选型系统
 
 面向全球 FAB 建设、厂务系统设计、设备厂协同、材料校验、采购质量、施工测试与移交的全栈工程管理原型。
 
@@ -10,7 +10,7 @@
 4. 对候选产品及设备内部部件执行材料、介质、压力、温度、接口、洁净度和证据文件联合校验。
 5. 选入项目 BOM，完成选型冻结、设备内部 BOM 冻结和项目发布审批。
 
-完整界面操作和异常处理见 [FabFlow 操作说明](docs/operation-manual.md)。
+完整界面操作和异常处理见 [Facility Construction Management Software 操作说明](docs/operation-manual.md)。
 
 ## 本地运行
 

@@ -1,6 +1,6 @@
-# FabFlow 账号登录与权限管理
+# Facility Construction Management Software 账号登录与权限管理
 
-FabFlow 的公开页面允许匿名只读浏览。新增、修改、删除、审批、主数据维护和账号管理必须登录，并由服务端按项目范围校验 RBAC 权限。
+Facility Construction Management Software 的公开页面允许匿名只读浏览。新增、修改、删除、审批、主数据维护和账号管理必须登录，并由服务端按项目范围校验 RBAC 权限。
 
 ## 管理入口
 

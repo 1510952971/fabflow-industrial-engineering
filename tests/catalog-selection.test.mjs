@@ -91,7 +91,7 @@ test("product catalog exposes the all-library parameter matcher", async () => {
 test("legacy material master rows can participate in all-library matching", () => {
   const materialRequirement = { categoryId: "", systemCode: "", designPressureMpa: 5, designTemperatureC: 60, requiredMaterialsJson: ["316L"] };
   const materialCandidate = {
-    id: "material:316l", categoryId: "", brand: "FabFlow Approved", status: "approved", applicableSystemsJson: [], mediaJson: [],
+    id: "material:316l", categoryId: "", brand: "Facility Construction Management Software Approved", status: "approved", applicableSystemsJson: [], mediaJson: [],
     minPressureMpa: 0, maxPressureMpa: 10, minTemperatureC: -20, maxTemperatureC: 100, nominalSize: null, connectionStandard: null,
     wettedMaterialsJson: ["316L", "EP"], certificationsJson: [], standardsJson: [], specificationsJson: {},
   };
