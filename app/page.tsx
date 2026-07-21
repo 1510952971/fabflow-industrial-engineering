@@ -5,6 +5,7 @@ import "./auth.css";
 import { useEffect, useMemo, useState } from "react";
 import { ModuleRouter } from "./modules";
 import { LoginModal } from "./login-modal";
+import { ChangePasswordModal } from "./change-password-modal";
 import { ProjectCreationWizard } from "./project-creation-wizard";
 import { copyText, createWorkflowAction, openMasterData } from "@/lib/client-actions";
 import { facilityDomains, facilitySystems, getFacilitySystem, quickProjectSystems } from "@/lib/facility-systems";
@@ -52,6 +53,7 @@ export default function Home() {
   const [materialFilter, setMaterialFilter] = useState("全部");
   const [profileOpen, setProfileOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [projectWizardOpen, setProjectWizardOpen] = useState(false);
   const [toast, setToast] = useState("");
   const bolt = thickness <= 2 ? "M5 × 8" : thickness <= 4 ? "M5 × 12" : "M6 × 16";
@@ -105,7 +107,7 @@ export default function Home() {
       <div className="sidebarBottom">
         <button className="themeSwitch" onClick={()=>setDark(!dark)}><em>{dark?"☾":"☼"}</em><span>{dark?"暗黑工程版":"浅色办公版"}</span><i className={dark?"on":""}/></button>
         <div className="profile"><div>{principal.displayName.slice(0,2).toUpperCase()}</div><span><b>{principal.displayName}</b><small>{principal.authenticated?principal.roles.join(" · "):"公开只读演示"}</small></span><button onClick={()=>setProfileOpen(!profileOpen)} aria-label="打开账户菜单">···</button></div>
-        {profileOpen&&<div className="profileMenu">{!principal.authenticated?<button onClick={()=>{setLoginOpen(true);setProfileOpen(false)}}>⇥ 登录账号</button>:<button onClick={()=>void logout()}>↪ 安全退出</button>}<button onClick={()=>{activate("工程主数据录入","delivery");setProfileOpen(false)}}>✎ 主数据录入</button>{principal.roles.includes("platform_admin")&&<button onClick={()=>{activate("数据底座与协同","delivery");setProfileOpen(false)}}>◌ 账号与权限管理</button>}</div>}
+        {profileOpen&&<div className="profileMenu">{!principal.authenticated?<button onClick={()=>{setLoginOpen(true);setProfileOpen(false)}}>⇥ 登录账号</button>:<><button onClick={()=>{setChangePasswordOpen(true);setProfileOpen(false)}}>⚑ 修改我的密码</button><button onClick={()=>void logout()}>↪ 安全退出</button></>}<button onClick={()=>{activate("工程主数据录入","delivery");setProfileOpen(false)}}>✎ 主数据录入</button>{principal.roles.includes("platform_admin")&&<button onClick={()=>{window.sessionStorage.setItem("fabflow:data-foundation-tab","权限与审批");window.dispatchEvent(new CustomEvent("fabflow:data-foundation-tab",{detail:"权限与审批"}));activate("数据底座与协同","delivery");setProfileOpen(false)}}>◌ 账号与权限管理</button>}</div>}
       </div>
     </aside>
 
@@ -181,6 +183,7 @@ export default function Home() {
     {drawer&&<><div className="overlay" onClick={()=>setDrawer(false)}/><aside className="drawer"><div className="drawerHead"><div><span>QUICK TOOLS</span><h2>工程辅助工具箱</h2><p>三个工具统一在当前抽屉内切换</p></div><button onClick={()=>setDrawer(false)}>×</button></div><div className="toolTabs"><button className={drawerTool==="convert"?"active":""} onClick={()=>setDrawerTool("convert")}>单位换算</button><button className={drawerTool==="compatibility"?"active":""} onClick={()=>setDrawerTool("compatibility")}>材质禁忌</button><button className={drawerTool==="torque"?"active":""} onClick={()=>setDrawerTool("torque")}>扭矩速查</button></div>{drawerTool==="convert"&&<div className="drawerToolPanel converter card"><div className="drawerToolTitle"><span>PRESSURE CONVERTER</span><b>压力双向换算</b></div><label>压力 · MPa<input type="number" step="0.001" value={pressure} onChange={e=>setPressure(+e.target.value)}/></label><button onClick={()=>void copyText((pressure*145.038).toFixed(2)+" psi").then(()=>notify("psi 数值已复制"))}>复制 psi</button><label>压力 · psi<input readOnly value={(pressure*145.038).toFixed(2)}/></label><p>常用值 <button onClick={()=>setPressure(6.895)}>1000 psi</button><button onClick={()=>setPressure(0.7)}>0.7 MPa</button></p></div>}{drawerTool==="compatibility"&&<div className="drawerToolPanel card drawerReference"><div className="drawerToolTitle"><span>MATERIAL COMPATIBILITY</span><b>介质材质禁忌速查</b></div>{[["Cl₂ 氯气","禁用 EPDM","PCTFE / FFKM"],["HF 氢氟酸","禁用玻璃 / 金属","HP PFA / PTFE"],["UPW 超纯水","禁用普通 PVC","HP PVDF / 316L EP"],["O₃ 臭氧","禁用 NBR","316L EP / FFKM"]].map(item=><div className="drawerReferenceRow" key={item[0]}><b>{item[0]}</b><span>{item[1]}</span><em>{item[2]}</em></div>)}<button className="drawerFullAction" onClick={()=>openMasterData("materialCompatibility")}>打开完整兼容矩阵 →</button></div>}{drawerTool==="torque"&&<div className="drawerToolPanel card drawerReference"><div className="drawerToolTitle"><span>FASTENER TORQUE</span><b>304 不锈钢标准扭矩</b></div>{[["M4","2.4 N·m","± 0.2"],["M5","4.8 N·m","± 0.4"],["M6","8.3 N·m","± 0.7"],["M8","20 N·m","± 1.5"]].map(item=><div className="drawerReferenceRow torque" key={item[0]}><b>{item[0]}</b><span>{item[1]}</span><em>{item[2]}</em></div>)}<button className="drawerFullAction" onClick={()=>void copyText("M4 2.4 N·m\nM5 4.8 N·m\nM6 8.3 N·m\nM8 20 N·m").then(()=>notify("扭矩标准已复制"))}>复制当前扭矩表 →</button></div>}<div className="toolCard"><span>CURRENT BOM</span><h3>当前项目物料</h3><div><b>{1284+added.length}</b><small>总物料数量</small></div><button onClick={()=>void copyText("FAB2A-BOM "+(1284+added.length)+" PCS\nM5×8 四组合螺栓\n316L EP / BA 按系统规格执行").then(()=>notify("CAD 标注文本已复制")).catch(error=>notify(error instanceof Error?error.message:"复制失败"))}>复制 CAD 标注文本</button></div></aside></>}
     <ProjectCreationWizard open={projectWizardOpen} onClose={()=>setProjectWizardOpen(false)} notify={notify} onCreated={(project)=>{setProjects((current)=>[project,...current.filter((item)=>item.id!==project.id)]);setProjectId(project.id);setActive("项目工作台");setProjectWizardOpen(false);updateProjectUrl(project.id,"项目工作台");}}/>
     <LoginModal open={loginOpen} onClose={()=>setLoginOpen(false)} onSuccess={(session)=>{setPrincipal(session.principal);setCanWrite(Boolean(session.permissions.canWrite));notify(`欢迎，${session.principal.displayName}`)}}/>
+    <ChangePasswordModal open={changePasswordOpen} onClose={()=>setChangePasswordOpen(false)} onSuccess={()=>{setPrincipal({displayName:"公开演示访客",email:"public@fabflow.demo",roles:["public_viewer"],authenticated:false});setCanWrite(false);notify("密码已修改，请使用新密码重新登录")}}/>
     {toast&&<div className="toast">✓ {toast}</div>}
   </main>;
 }

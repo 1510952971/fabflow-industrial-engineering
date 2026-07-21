@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { getDb } from "@/db";
 import { authCredentials, authSessions, userRoles, users } from "@/db/schema";
 import { createPasswordCredential, validatePassword } from "@/lib/account-auth";
@@ -47,13 +47,14 @@ export async function GET(request: Request) {
     }).from(users)
       .leftJoin(authCredentials, eq(authCredentials.userId, users.id))
       .leftJoin(userRoles, eq(userRoles.userId, users.id))
+      .where(ne(users.status, "deleted"))
       .limit(500);
     return Response.json({ users: rows, roles: allowedRoles, currentUserId: principal.id });
   } catch (error) { return errorResponse(error); }
 }
 
 type AccessBody = {
-  action?: "create_user" | "reset_password" | "set_status" | "grant" | "revoke";
+  action?: "create_user" | "reset_password" | "set_status" | "delete_user" | "grant" | "revoke";
   userId?: string;
   email?: string;
   displayName?: string;
@@ -101,6 +102,22 @@ export async function POST(request: Request) {
     if (!body.userId) throw new ApiError(400, "用户 ID 必填", "INVALID_INPUT");
     const [user] = await db.select().from(users).where(eq(users.id, body.userId)).limit(1);
     if (!user) throw new ApiError(404, "用户不存在", "NOT_FOUND");
+
+    if (body.action === "delete_user") {
+      if (user.id === principal.id) throw new ApiError(409, "\u4e0d\u80fd\u5220\u9664\u5f53\u524d\u767b\u5f55\u8d26\u53f7", "SELF_LOCKOUT_BLOCKED");
+      const admins = await activeAdminIds();
+      if (admins.has(user.id) && admins.size <= 1) throw new ApiError(409, "\u4e0d\u80fd\u5220\u9664\u6700\u540e\u4e00\u4e2a\u6709\u6548\u7ba1\u7406\u5458", "LAST_ADMIN_BLOCKED");
+      const roles = await db.select().from(userRoles).where(eq(userRoles.userId, user.id));
+      const now = new Date().toISOString();
+      await db.update(authSessions).set({ status: "revoked" }).where(eq(authSessions.userId, user.id));
+      await db.delete(authCredentials).where(eq(authCredentials.userId, user.id));
+      await db.delete(userRoles).where(eq(userRoles.userId, user.id));
+      await db.update(users).set({ status: "deleted", updatedAt: now }).where(eq(users.id, user.id));
+      await writeAudit(request, principal, { action: "account.delete", entityType: "user", entityId: user.id, before: { email: user.email, status: user.status, roles }, after: { email: user.email, status: "deleted", roles: [] } });
+      return Response.json({ userId: user.id, action: body.action, status: "deleted" });
+    }
+
+    if (user.status === "deleted") throw new ApiError(409, "\u5df2\u5220\u9664\u8d26\u53f7\u4e0d\u80fd\u7ee7\u7eed\u4fee\u6539\uff1b\u5386\u53f2\u8bb0\u5f55\u4ec5\u4f9b\u5ba1\u8ba1", "ACCOUNT_DELETED");
 
     if (body.action === "reset_password") {
       const password = String(body.password ?? "");

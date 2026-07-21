@@ -13,6 +13,20 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    server: {
+      watch: {
+        // Catalogue PDFs, generated exports and local persistence are data,
+        // not source files. Watching them can delay startup by several minutes.
+        ignored: [
+          "**/材料型录/**",
+          "**/outputs/**",
+          "**/work/**",
+          "**/.wrangler/**",
+          "**/dist/**",
+          "**/build/**",
+        ],
+      },
+    },
     // Keep one React dispatcher across Vinext, RSC and Cloudflare SSR.
     resolve: {
       dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime"],

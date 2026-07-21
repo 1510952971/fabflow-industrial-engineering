@@ -34,6 +34,14 @@ export function DataFoundationPage({ notify }: { notify: Notify }) {
   const [foundation, setFoundation] = useState<{storage?:{d1:string;r2:string};principal?:{displayName:string;roles:string[]};counts?:Record<string,number>} | null>(null);
   const [foundationError, setFoundationError] = useState("");
 
+  useEffect(() => {
+    const selectTab = (value: string | null) => { if (["\u6570\u636e\u63a5\u5165", "\u6743\u9650\u4e0e\u5ba1\u6279", "\u9644\u4ef6\u4e0e\u5ba1\u8ba1", "\u7535\u5b50\u7b7e\u7ae0", "\u843d\u5730\u84dd\u56fe"].includes(value ?? "")) setTab(value as string); };
+    selectTab(window.sessionStorage.getItem("fabflow:data-foundation-tab")); window.sessionStorage.removeItem("fabflow:data-foundation-tab");
+    const listener = (event: Event) => selectTab((event as CustomEvent<string>).detail);
+    window.addEventListener("fabflow:data-foundation-tab", listener);
+    return () => window.removeEventListener("fabflow:data-foundation-tab", listener);
+  }, []);
+
   const copySchema = () => {
     const schema = {
       Project: ["id", "code", "phase", "site", "status"],
