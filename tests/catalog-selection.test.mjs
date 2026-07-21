@@ -98,3 +98,13 @@ test("legacy material master rows can participate in all-library matching", () =
   const result = evaluateCatalogCandidate(materialRequirement, materialCandidate);
   assert.equal(result.status, "passed");
 });
+test("custom product specifications participate in engineering matching", () => {
+  const customKey = "custom_filter_accuracy";
+  const customRequirement = { ...requirement, requiredSpecificationsJson: { [customKey]: { max: 0.01 } } };
+  const product = { ...goodProduct, specificationsJson: { [customKey]: 0.005, __customFields: [{ id: "filter", key: customKey, label: "过滤精度", unit: "μm", dataType: "number" }] } };
+  const passed = evaluateCatalogCandidate(customRequirement, product);
+  assert.equal(passed.status, "passed");
+  assert.ok(passed.checks.some((item) => item.code === "spec." + customKey && item.status === "pass"));
+  const blocked = evaluateCatalogCandidate(customRequirement, { ...product, specificationsJson: { ...product.specificationsJson, [customKey]: 0.02 } });
+  assert.equal(blocked.status, "blocked");
+});

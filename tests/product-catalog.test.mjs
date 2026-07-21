@@ -24,6 +24,23 @@ test("dynamic product specification validation catches missing and invalid value
   assert.ok(invalid.issues.length >= 3);
 });
 
+test("catalog product entry supports repeatable custom specification fields", async () => {
+  const [page, css] = await Promise.all([
+    (await import("node:fs/promises")).readFile(new URL("../app/product-catalog-page.tsx", import.meta.url), "utf8"),
+    (await import("node:fs/promises")).readFile(new URL("../app/product-catalog.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /添加自定义规格/);
+  assert.match(page, /CUSTOM_SPEC_META_KEY/);
+  assert.match(page, /customKeyFromLabel/);
+  assert.match(page, /\u5339\u914d\u952e/);
+  assert.match(page, /serializeSpecifications/);
+  assert.match(page, /字段名称/);
+  assert.match(page, /数据类型/);
+  assert.match(page, /\u8bf4\u660e.*\u6761\u4ef6/);
+  assert.match(page, /customValidationIssues/);
+  assert.match(css, /catalogCustomRow/);
+});
+
 test("catalog UI and API expose source traceability, variants, applications and global authorization", async () => {
 
 

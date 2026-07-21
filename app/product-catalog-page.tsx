@@ -33,6 +33,19 @@ type QuickMatchInput = { systemCode: string; categoryId: string; medium: string;
 type Draft = Omit<Product, "id" | "applicableSystemsJson" | "mediaJson" | "wettedMaterialsJson" | "certificationsJson" | "standardsJson" | "specificationsJson" | "imagesJson"> & {
   id?: string; systems: string[]; mediaText: string; materialsText: string; certificationsText: string; standardsText: string;
 };
+type CustomSpecification = {
+  id: string; key: string; label: string; value: string; unit: string; note: string; dataType: "text" | "number" | "boolean";
+};
+
+const CUSTOM_SPEC_META_KEY = "__customFields";
+const customKeyFromLabel = (label: string, fallback: string) => {
+  const normalized = label.trim().toLowerCase().replace(/[\s/\\]+/g, "_").replace(/[^\p{L}\p{N}_.-]+/gu, "_").replace(/^_+|_+$/g, "");
+  return "custom." + (normalized || fallback.replaceAll("-", ""));
+};
+const newCustomSpecification = (): CustomSpecification => {
+  const id = crypto.randomUUID();
+  return { id, key: customKeyFromLabel("", id), label: "", value: "", unit: "", note: "", dataType: "text" };
+};
 
 const emptyDraft = (categoryId = ""): Draft => ({
   categoryId, manufacturer: "", brand: "", productCode: "", productName: "", series: "", model: "", description: "", country: "",
@@ -54,6 +67,28 @@ function parseObject(value: unknown): Record<string, unknown> {
   if (typeof value !== "string" || !value.trim()) return {};
   try { const parsed = JSON.parse(value); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}; }
   catch { return {}; }
+}
+
+function readCustomSpecifications(value: unknown): CustomSpecification[] {
+  const source = parseObject(value);
+  const rows = Array.isArray(source[CUSTOM_SPEC_META_KEY]) ? source[CUSTOM_SPEC_META_KEY] as Array<Record<string, unknown>> : [];
+  return rows.map((row) => ({
+    id: String(row.id || row.key), key: String(row.key || ""), label: String(row.label || row.key || ""),
+    value: source[String(row.key || "")] === undefined ? "" : String(source[String(row.key || "")]), unit: String(row.unit || ""),
+    note: String(row.note || ""), dataType: (row.dataType === "number" || row.dataType === "boolean" ? row.dataType : "text") as CustomSpecification["dataType"],
+  })).filter((row) => row.key);
+}
+function stripCustomSpecifications(value: unknown) {
+  const source = { ...parseObject(value) };
+  for (const row of readCustomSpecifications(source)) delete source[row.key];
+  delete source[CUSTOM_SPEC_META_KEY];
+  return source;
+}
+function serializeSpecifications(standard: Record<string, unknown>, custom: CustomSpecification[]) {
+  const values: Record<string, unknown> = { ...standard };
+  for (const row of custom) values[row.key] = row.dataType === "number" ? Number(row.value) : row.dataType === "boolean" ? row.value === "true" : row.value;
+  values[CUSTOM_SPEC_META_KEY] = custom.map((row) => ({ id: row.id, key: row.key, label: row.label, unit: row.unit, note: row.note, dataType: row.dataType }));
+  return values;
 }
 
 function listText(value: unknown) { return parseArray(value).join("、"); }
@@ -96,6 +131,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [specifications, setSpecifications] = useState<Record<string, unknown>>({});
+  const [customSpecifications, setCustomSpecifications] = useState<CustomSpecification[]>([]);
   const [imageFilesByProduct, setImageFilesByProduct] = useState<Record<string, Attachment[]>>({});
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [removedImageIds, setRemovedImageIds] = useState<string[]>([]);
@@ -141,7 +177,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const shown = useMemo(() => products.filter((product) => {
     const category = categoryMap.get(product.categoryId);
     const systems = parseArray(product.applicableSystemsJson);
-    const text = `${product.brand} ${product.manufacturer} ${product.productCode} ${product.productName} ${product.series} ${product.model} ${product.description} ${product.sourceDocument ?? ""} ${category?.name ?? ""}`.toLowerCase();
+    const text = `${product.brand} ${product.manufacturer} ${product.productCode} ${product.productName} ${product.series} ${product.model} ${product.description} ${product.sourceDocument ?? ""} ${product.specificationsJson} ${category?.name ?? ""}`.toLowerCase();
     return (systemCode === "all" || systems.includes(systemCode))
       && (categoryId === "all" || product.categoryId === categoryId)
       && (status === "all" || product.status === status)
@@ -197,6 +233,17 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
     notify("已完成全库匹配：" + matches.filter((item) => item.status !== "blocked").length + " 个可用候选，" + matches.filter((item) => item.status === "blocked").length + " 个被规则拦截");
   };
   const editorValidation = validateProductSpecifications(specifications, currentDefinitions);
+  const customKeyCounts = new Map<string, number>();
+  for (const row of customSpecifications) customKeyCounts.set(row.key, (customKeyCounts.get(row.key) ?? 0) + 1);
+  const customValidationIssues = customSpecifications.flatMap((row, index) => {
+    const issues: string[] = [];
+    if (!row.label.trim()) issues.push(`自定义规格 ${index + 1} 缺少字段名称`);
+    if (!row.value.trim()) issues.push(`${row.label.trim() || `自定义规格 ${index + 1}`} 缺少字段值`);
+    if (row.dataType === "number" && row.value.trim() && !Number.isFinite(Number(row.value))) issues.push(`${row.label.trim()} 必须是有效数字`);
+    if ((customKeyCounts.get(row.key) ?? 0) > 1) issues.push(`自定义规格“${row.label.trim()}”重复`);
+    return issues;
+  });
+  const editorValid = editorValidation.valid && customValidationIssues.length === 0;
   const groupedDefinitions = (() => {
     const groups = new Map<string, ProductParameterDefinition[]>();
     for (const definition of currentDefinitions) groups.set(definition.groupName, [...(groups.get(definition.groupName) ?? []), definition]);
@@ -206,7 +253,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const startNew = () => {
     if (!canWriteGlobal) { notify("请使用平台管理员账号录入或维护全局产品型录"); return; }
     const initialCategory = categories[0]?.id ?? "";
-    setDraft(emptyDraft(initialCategory)); setSpecifications({}); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true);
+    setDraft(emptyDraft(initialCategory)); setSpecifications({}); setCustomSpecifications([]); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true);
   };
 
   const editProduct = (product: Product) => {
@@ -216,10 +263,13 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
       systems: parseArray(product.applicableSystemsJson), mediaText: listText(product.mediaJson), materialsText: listText(product.wettedMaterialsJson),
       certificationsText: listText(product.certificationsJson), standardsText: listText(product.standardsJson),
     });
-    setSpecifications(parseObject(product.specificationsJson)); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true);
+    setSpecifications(stripCustomSpecifications(product.specificationsJson)); setCustomSpecifications(readCustomSpecifications(product.specificationsJson)); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true);
   };
 
   const updateDraft = (key: keyof Draft, value: unknown) => setDraft((current) => ({ ...current, [key]: value }));
+  const addCustomSpecification = () => setCustomSpecifications((current) => [...current, newCustomSpecification()]);
+  const updateCustomSpecification = (id: string, patch: Partial<CustomSpecification>) => setCustomSpecifications((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row));
+  const removeCustomSpecification = (id: string) => setCustomSpecifications((current) => current.filter((row) => row.id !== id));
   const toggleSystem = (code: string) => setDraft((current) => ({ ...current, systems: current.systems.includes(code) ? current.systems.filter((item) => item !== code) : [...current.systems, code] }));
 
   const referencedImages = (product: Product) => {
@@ -268,6 +318,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
     ].filter(([value]) => !value).map(([, label]) => label);
     if (missing.length) { setError(`请填写：${missing.join("、")}`); return; }
     if (!editorValidation.valid) { setError(editorValidation.issues.map((issue) => issue.message).join("；")); return; }
+    if (customValidationIssues.length) { setError(customValidationIssues.join("；")); return; }
     const queuedImages = [...pendingImages];
     setSaving(true); setError("");
     try {
@@ -281,7 +332,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
         connectionStandard: draft.connectionStandard || null, wettedMaterialsJson: parseArray(draft.materialsText), surfaceFinish: draft.surfaceFinish || null,
         cleanlinessGrade: draft.cleanlinessGrade || null, maxFlow: optionalNumber(draft.maxFlow), flowUnit: draft.flowUnit || null, supplyVoltage: draft.supplyVoltage || null,
         signalProtocol: draft.signalProtocol || null, ingressProtection: draft.ingressProtection || null, hazardousAreaRating: draft.hazardousAreaRating || null,
-        certificationsJson: parseArray(draft.certificationsText), standardsJson: parseArray(draft.standardsText), specificationsJson: specifications,
+        certificationsJson: parseArray(draft.certificationsText), standardsJson: parseArray(draft.standardsText), specificationsJson: serializeSpecifications(specifications, customSpecifications),
         sourceDocument: draft.sourceDocument || null, sourceUrl: draft.sourceUrl || null, sourcePage: draft.sourcePage || null, revision: draft.revision, status: draft.status,
       };
       const response = await fetch("/api/master-data", { method: draft.id ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: "catalogProducts", id: draft.id, data }) });
@@ -342,7 +393,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
     const source = parseObject(candidate.parametersJson);
     const categoryId = categories.find((item) => candidate.categoryHint && item.name.toLowerCase().includes(candidate.categoryHint.toLowerCase()))?.id ?? categories[0]?.id ?? "";
     setDraft({ ...emptyDraft(categoryId), manufacturer: candidate.manufacturer, brand: candidate.brand, productName: candidate.productName, model: candidate.model, sourceDocument: typeof source.sourceFile === "string" ? source.sourceFile : "" });
-    setSpecifications({}); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true);
+    setSpecifications({}); setCustomSpecifications([]); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true);
     notify("候选已带入产品录入，请补齐分类、系统、参数和来源页码");
   };
 
@@ -380,12 +431,12 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
     </div></section>
     {loading ? <div className="catalogLoading"><i/><i/><i/></div> : shown.length ? <div className="productCatalogGrid">{shown.map((product) => {
       const category = categoryMap.get(product.categoryId); const systems = parseArray(product.applicableSystemsJson); const validation = completeness(product);
-      const productVariants = variants.filter((item) => item.productId === product.id); const productApplications = applications.filter((item) => item.productId === product.id); const detail = detailId === product.id; const productImages = referencedImages(product);
+      const productVariants = variants.filter((item) => item.productId === product.id); const productApplications = applications.filter((item) => item.productId === product.id); const detail = detailId === product.id; const productImages = referencedImages(product); const productCustomSpecifications = readCustomSpecifications(product.specificationsJson);
       return <article id={"catalog-product-" + product.id} className={`card productCatalogCard ${detail ? "expanded" : ""}`} key={product.id}><header><div className="catalogProductIcon">{productImages[0] ? <img src={imageUrl(productImages[0].id)} alt={`${product.brand} ${product.model}`} loading="lazy" /> : category?.icon || "◇"}</div><div><small>{category?.name || "未分类"} · {product.productCode}</small><h3>{product.productName}</h3><p>{product.brand} · {product.model}</p></div><span className={`catalogStatus ${product.status}`}>{product.status === "approved" ? "已批准" : product.status === "conditional" ? "有条件" : product.status === "pending_review" ? "待审核" : "待复核"}</span></header>
         <div className="catalogSystemChips">{systems.slice(0, 5).map((code) => { const system = getFacilitySystem(code); return <span className={`chip ${system?.color || "gray"}`} key={code}>{code}</span>; })}{systems.length > 5 && <em>+{systems.length - 5}</em>}</div>
         <div className="catalogKeySpecs"><p><span>压力范围</span><b>{product.minPressureMpa ?? "—"} ～ {product.maxPressureMpa ?? "—"} MPa</b></p><p><span>温度范围</span><b>{product.minTemperatureC ?? "—"} ～ {product.maxTemperatureC ?? "—"} °C</b></p><p><span>接口 / 尺寸</span><b>{[product.connectionStandard, product.nominalSize].filter(Boolean).join(" · ") || "待录入"}</b></p><p><span>接液 / 内部材质</span><b>{listText(product.wettedMaterialsJson) || "待录入"}</b></p></div>
         <div className={`catalogCompleteness ${validation.valid ? "complete" : "incomplete"}`}><i>{validation.valid ? "✓" : "!"}</i><span><b>{validation.valid ? "分类规格完整" : `缺少或错误 ${validation.issues.length} 项`}</b><small>{validation.valid ? "可进入技术审核" : validation.issues.slice(0, 2).map((item) => item.label).join("、")}</small></span></div>
-        {detail && <div className="catalogDetail"><div><span>详细分类规格</span>{definitionsFor(product.categoryId).map((definition) => <p key={definition.id || definition.key}><small>{definition.label}</small><b>{displaySpec(parseObject(product.specificationsJson)[definition.key], definition.unit)}</b></p>)}</div><div><span>来源与扩展记录</span><p><small>来源文件</small><b>{product.sourceDocument || "—"}</b></p><p><small>来源页码</small><b>{product.sourcePage || "—"}</b></p><p><small>型号变体</small><b>{productVariants.length} 个 SKU</b></p><p><small>系统适用性明细</small><b>{productApplications.length} 条</b></p>{product.sourceUrl && <a href={product.sourceUrl} target="_blank" rel="noreferrer">打开厂家正式资料 ↗</a>}</div></div>}
+        {detail && <div className="catalogDetail"><div><span>详细分类规格</span>{definitionsFor(product.categoryId).map((definition) => <p key={definition.id || definition.key}><small>{definition.label}</small><b>{displaySpec(parseObject(product.specificationsJson)[definition.key], definition.unit)}</b></p>)}{productCustomSpecifications.map((field) => <p className="custom" key={field.key}><small>{field.label}{field.note ? ` · ${field.note}` : ""}</small><b>{displaySpec(field.dataType === "boolean" ? field.value === "true" : field.value, field.unit)}</b></p>)}</div><div><span>来源与扩展记录</span><p><small>来源文件</small><b>{product.sourceDocument || "—"}</b></p><p><small>来源页码</small><b>{product.sourcePage || "—"}</b></p><p><small>型号变体</small><b>{productVariants.length} 个 SKU</b></p><p><small>系统适用性明细</small><b>{productApplications.length} 条</b></p>{product.sourceUrl && <a href={product.sourceUrl} target="_blank" rel="noreferrer">打开厂家正式资料 ↗</a>}</div></div>}
         <footer><div><button onClick={() => setDetailId(detail ? null : product.id)}>{detail ? "收起详情" : "查看全部参数"}</button><button onClick={() => editProduct(product)}>{canWriteGlobal ? "编辑产品" : "只读查看"}</button></div><div><button onClick={() => { openMasterData("productApplications", product.productCode); notify("已打开产品系统适用性台账"); }}>适用性</button><button className="primaryButton" onClick={() => { document.getElementById("project-catalog-selection")?.scrollIntoView({ behavior: "smooth", block: "start" }); notify("请先选择项目技术规格要求并运行匹配，合格后才能进入 BOM"); }}>按规格书选型</button></div></footer>
       </article>;
     })}</div> : <div className="card catalogEmpty"><i>◇</i><h3>没有符合条件的产品</h3><p>{products.length ? "请调整系统、分类或审核状态筛选条件" : "管理员可录入第一条产品，或在主数据中心批量导入 CSV / JSON"}</p>{canWriteGlobal && <button className="primaryButton" onClick={startNew}>＋ 录入产品</button>}</div>}
@@ -423,7 +474,20 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
           if (field.dataType === "boolean") return <label className="catalogBoolean" key={field.key}><span><b>{field.label}{field.required ? " *" : ""}</b><small>{field.helpText || "是 / 否"}</small></span><input type="checkbox" checked={Boolean(value)} onChange={(event) => setSpecifications((current) => ({ ...current, [field.key]: event.target.checked }))}/></label>;
           if (field.dataType === "select") return <label key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><select value={String(value)} onChange={(event) => setSpecifications((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">请选择</option>{options.map((option) => <option value={option} key={option}>{option}</option>)}</select>{field.unit && <small>单位：{field.unit}</small>}</label>;
           return <label key={field.key}><span>{field.label}{field.required ? " *" : ""}</span><div className="catalogUnitInput"><input type={field.dataType === "number" ? "number" : "text"} step={field.dataType === "number" ? "any" : undefined} value={String(value)} onChange={(event) => setSpecifications((current) => ({ ...current, [field.key]: field.dataType === "number" && event.target.value !== "" ? Number(event.target.value) : event.target.value }))}/>{field.unit && <em>{field.unit}</em>}</div>{field.helpText && <small>{field.helpText}</small>}</label>;
-        })}</div></div>)}</section>
+        })}</div></div>)}
+          <div className="catalogCustomSpecifications">
+            <div className="catalogCustomHead"><div><b>其他自定义规格</b><small>内置模板没有的参数可在这里逐项增加，并随产品保存、检索和匹配。</small></div><button type="button" onClick={addCustomSpecification}>＋ 添加自定义规格</button></div>
+            {customSpecifications.length ? <div className="catalogCustomRows">{customSpecifications.map((row, index) => <div className="catalogCustomRow" key={row.id}>
+              <i>{String(index + 1).padStart(2, "0")}</i>
+              <label><span>字段名称 *</span><input value={row.label} onChange={(event) => updateCustomSpecification(row.id, { label: event.target.value, key: customKeyFromLabel(event.target.value, row.id) })} placeholder="例如 泄漏率 / 过滤精度" /><small>匹配键：{row.key}</small></label>
+              <label><span>数据类型</span><select value={row.dataType} onChange={(event) => updateCustomSpecification(row.id, { dataType: event.target.value as CustomSpecification["dataType"], value: "" })}><option value="text">文本</option><option value="number">数字</option><option value="boolean">是 / 否</option></select></label>
+              <label><span>字段值 *</span>{row.dataType === "boolean" ? <select value={row.value} onChange={(event) => updateCustomSpecification(row.id, { value: event.target.value })}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select> : <input type={row.dataType === "number" ? "number" : "text"} step={row.dataType === "number" ? "any" : undefined} value={row.value} onChange={(event) => updateCustomSpecification(row.id, { value: event.target.value })} placeholder="填写规格值" />}</label>
+              <label><span>单位</span><input value={row.unit} onChange={(event) => updateCustomSpecification(row.id, { unit: event.target.value })} placeholder="Pa / μm / L/min" /></label>
+              <label className="note"><span>说明 / 条件</span><input value={row.note} onChange={(event) => updateCustomSpecification(row.id, { note: event.target.value })} placeholder="测试条件、允许范围或来源条款" /></label>
+              <button type="button" className="remove" onClick={() => removeCustomSpecification(row.id)} aria-label={`删除自定义规格 ${row.label || index + 1}`}>×</button>
+            </div>)}</div> : <div className="catalogCustomEmpty"><span>＋</span><p><b>暂无自定义规格</b><small>遇到模板未覆盖的样册参数时，点击“添加自定义规格”。</small></p></div>}
+          </div>
+        </section>
         <section><div className="catalogSectionTitle"><b>06 · 标准、认证与来源</b><small>每条产品必须能追溯到本地型录或厂家正式资料</small></div><div className="catalogFormGrid">
           <label className="wide"><span>认证（逗号分隔）</span><input value={draft.certificationsText} onChange={(event) => updateDraft("certificationsText", event.target.value)} placeholder="CE, UL, ATEX…"/></label><label className="wide"><span>符合标准（逗号分隔）</span><input value={draft.standardsText} onChange={(event) => updateDraft("standardsText", event.target.value)} placeholder="SEMI F20, IEC 60947-7-1…"/></label>
           <label className="wide"><span>来源文件 *</span><input value={draft.sourceDocument ?? ""} onChange={(event) => updateDraft("sourceDocument", event.target.value)} placeholder="材料型录/文件名.pdf"/></label><label className="wide"><span>厂家正式资料 URL *</span><input value={draft.sourceUrl ?? ""} onChange={(event) => updateDraft("sourceUrl", event.target.value)} placeholder="https://manufacturer.example/datasheet"/></label>
@@ -431,7 +495,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
           <label><span>审核状态</span><select value={draft.status} onChange={(event) => updateDraft("status", event.target.value)}><option value="draft">待复核草稿</option><option value="pending_review">待审核</option><option value="approved">已批准</option><option value="conditional">有条件</option><option value="rejected">驳回</option></select></label>
         </div></section>
       </div>
-      <footer><div className={editorValidation.valid ? "valid" : "invalid"}><i>{editorValidation.valid ? "✓" : "!"}</i><span><b>{editorValidation.valid ? "分类规格校验通过" : `还有 ${editorValidation.issues.length} 个规格问题`}</b><small>{editorValidation.valid ? "保存后写入版本和审计日志" : editorValidation.issues.slice(0, 3).map((item) => item.label).join("、")}</small></span></div><button disabled={saving} onClick={() => setEditorOpen(false)}>取消</button><button className="primaryButton" disabled={saving || !editorValidation.valid} onClick={() => void save()}>{saving ? "保存中…" : draft.id ? "保存修改" : "创建产品"}</button></footer>
+      <footer><div className={editorValid ? "valid" : "invalid"}><i>{editorValid ? "✓" : "!"}</i><span><b>{editorValid ? "产品规格校验通过" : `还有 ${editorValidation.issues.length + customValidationIssues.length} 个规格问题`}</b><small>{editorValid ? `内置字段和 ${customSpecifications.length} 个自定义字段将写入版本与审计日志` : [...editorValidation.issues.map((item) => item.label), ...customValidationIssues].slice(0, 3).join("、")}</small></span></div><button disabled={saving} onClick={() => setEditorOpen(false)}>取消</button><button className="primaryButton" disabled={saving || !editorValid} onClick={() => void save()}>{saving ? "保存中…" : draft.id ? "保存修改" : "创建产品"}</button></footer>
     </aside></>}
   </>;
 }
