@@ -395,6 +395,25 @@ export const catalogProducts = sqliteTable("catalog_products", {
   index("catalog_products_category_idx").on(table.categoryId),
   index("catalog_products_model_idx").on(table.model),
   index("catalog_products_status_idx").on(table.status),
+  index("catalog_products_browse_idx").on(table.categoryId, table.updatedAt, table.id, table.status),
+  index("catalog_products_updated_idx").on(table.updatedAt, table.id, table.status),
+  index("catalog_products_brand_model_idx").on(table.brand, table.model, table.id),
+  index("catalog_products_pressure_idx").on(table.status, table.categoryId, table.maxPressureMpa, table.id),
+  index("catalog_products_temperature_idx").on(table.status, table.categoryId, table.maxTemperatureC, table.id),
+]);
+
+/** Indexed, normalized search facets. JSON remains the display source of truth,
+ * while this table makes system/medium/material/standard filters scale. */
+export const catalogProductFacets = sqliteTable("catalog_product_facets", {
+  productId: text("product_id").notNull().references(() => catalogProducts.id),
+  facetType: text("facet_type").notNull(),
+  normalizedValue: text("normalized_value").notNull(),
+  displayValue: text("display_value").notNull(),
+  createdAt: createdAt(),
+}, (table) => [
+  uniqueIndex("catalog_product_facets_uq").on(table.productId, table.facetType, table.normalizedValue),
+  index("catalog_product_facets_lookup_idx").on(table.facetType, table.normalizedValue, table.productId),
+  index("catalog_product_facets_product_idx").on(table.productId, table.facetType),
 ]);
 
 /**
@@ -706,6 +725,21 @@ export const authSessions = sqliteTable("auth_sessions", {
   index("auth_sessions_expiry_idx").on(table.expiresAt),
 ]);
 
+/** Small recoverable editor checkpoints. Large binaries never belong here. */
+export const userDrafts = sqliteTable("user_drafts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  draftType: text("draft_type").notNull(),
+  draftKey: text("draft_key").notNull(),
+  payloadJson: text("payload_json").notNull(),
+  revision: integer("revision").notNull().default(1),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => [
+  uniqueIndex("user_drafts_user_key_uq").on(table.userId, table.draftType, table.draftKey),
+  index("user_drafts_updated_idx").on(table.userId, table.updatedAt),
+]);
+
 export const userRoles = sqliteTable("user_roles", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),
@@ -781,6 +815,8 @@ export const attachments = sqliteTable("attachments", {
 }, (table) => [
   uniqueIndex("attachments_object_key_uq").on(table.objectKey),
   index("attachments_entity_idx").on(table.projectId, table.entityType, table.entityId),
+  index("attachments_browse_idx").on(table.projectId, table.entityType, table.status, table.createdAt, table.id),
+  index("attachments_version_idx").on(table.projectId, table.entityType, table.entityId, table.category, table.version),
 ]);
 
 export const auditLogs = sqliteTable("audit_logs", {

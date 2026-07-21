@@ -116,6 +116,8 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [definitions, setDefinitions] = useState<ProductParameterDefinition[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [variants, setVariants] = useState<Variant[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -135,8 +137,28 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const [imageFilesByProduct, setImageFilesByProduct] = useState<Record<string, Attachment[]>>({});
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [removedImageIds, setRemovedImageIds] = useState<string[]>([]);
+  const [draftSaveState, setDraftSaveState] = useState("");
   const [quickInput, setQuickInput] = useState<QuickMatchInput>({ systemCode: "all", categoryId: "all", medium: "", pressure: "", temperature: "", nominalSize: "", connectionStandard: "", materialsText: "", brand: "", standardsText: "", certificationsText: "", dynamic: {} });
   const [quickMatches, setQuickMatches] = useState<CatalogMatch[]>([]);
+
+  const loadProducts = async (reset: boolean, cursor?: string | null) => {
+    if (!reset) setLoadingMore(true);
+    const params = new URLSearchParams({ limit: "60" });
+    if (query.trim()) params.set("q", query.trim());
+    if (systemCode !== "all") params.set("systemCode", systemCode);
+    if (categoryId !== "all") params.set("categoryId", categoryId);
+    if (status !== "all") params.set("status", status);
+    if (!reset && cursor) params.set("cursor", cursor);
+    try {
+      const response = await fetch(`/api/catalog-products?${params}`, { cache: "no-store" });
+      const payload = await response.json() as { error?: string; items?: Product[]; variants?: Variant[]; applications?: Application[]; nextCursor?: string | null };
+      if (!response.ok) throw new Error(payload.error || "Catalog load failed");
+      setProducts((current) => reset ? (payload.items ?? []) : [...current, ...(payload.items ?? []).filter((item) => !current.some((row) => row.id === item.id))]);
+      setVariants((current) => reset ? (payload.variants ?? []) : [...current, ...(payload.variants ?? []).filter((item) => !current.some((row) => row.id === item.id))]);
+      setApplications((current) => reset ? (payload.applications ?? []) : [...current, ...(payload.applications ?? []).filter((item) => !current.some((row) => row.id === item.id))]);
+      setNextCursor(payload.nextCursor ?? null);
+    } finally { setLoadingMore(false); }
+  };
 
   const loadImages = async () => {
     try {
@@ -153,16 +175,14 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const load = async () => {
     setLoading(true); setError("");
     try {
-      const response = await fetch("/api/master-data?entities=productCategories,productParameterDefinitions,catalogProducts,productVariants,productApplications,materials&pageSize=500", { cache: "no-store" });
+      const response = await fetch("/api/master-data?entities=productCategories,productParameterDefinitions,materials&pageSize=500", { cache: "no-store" });
       const payload = await response.json() as { error?: string; data?: { productCategories?: Category[]; productParameterDefinitions?: ProductParameterDefinition[]; catalogProducts?: Product[]; productVariants?: Variant[]; productApplications?: Application[]; materials?: Material[] }; permissions?: { canWriteGlobal?: boolean } };
       if (!response.ok) throw new Error(payload.error || "产品型录加载失败");
       setCategories((payload.data?.productCategories ?? []).filter((item) => item.status !== "archived"));
       setDefinitions((payload.data?.productParameterDefinitions ?? []).filter((item) => item.status !== "archived"));
-      setProducts((payload.data?.catalogProducts ?? []).filter((item) => item.status !== "archived"));
-      setVariants((payload.data?.productVariants ?? []).filter((item) => item.status !== "archived"));
-      setApplications(payload.data?.productApplications ?? []);
       setMaterials(payload.data?.materials ?? []);
       setCanWriteGlobal(Boolean(payload.permissions?.canWriteGlobal));
+      await loadProducts(true);
       void loadImages();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "产品型录加载失败"); }
     finally { setLoading(false); }
@@ -171,18 +191,38 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   // `load` intentionally runs once on mount; it closes over the initial fetch helpers.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, []);
+  useEffect(() => {
+    if (loading) return;
+    const timer = window.setTimeout(() => void loadProducts(true).catch((cause) => setError(cause instanceof Error ? cause.message : "Catalog filter failed")), 350);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, systemCode, categoryId, status]);
 
   const categoryMap = useMemo(() => new Map(categories.map((item) => [item.id, item])), [categories]);
   const definitionsFor = (targetCategoryId: string) => definitions.filter((item) => item.categoryId === targetCategoryId).sort((a, b) => a.sortOrder - b.sortOrder);
-  const shown = useMemo(() => products.filter((product) => {
-    const category = categoryMap.get(product.categoryId);
-    const systems = parseArray(product.applicableSystemsJson);
-    const text = `${product.brand} ${product.manufacturer} ${product.productCode} ${product.productName} ${product.series} ${product.model} ${product.description} ${product.sourceDocument ?? ""} ${product.specificationsJson} ${category?.name ?? ""}`.toLowerCase();
-    return (systemCode === "all" || systems.includes(systemCode))
-      && (categoryId === "all" || product.categoryId === categoryId)
-      && (status === "all" || product.status === status)
-      && (!query.trim() || text.includes(query.trim().toLowerCase()));
-  }), [products, categoryMap, systemCode, categoryId, status, query]);
+  const shown = products;
+
+  useEffect(() => {
+    if (!editorOpen || !canWriteGlobal) return;
+    const timer = window.setTimeout(async () => {
+      setDraftSaveState("Saving draft...");
+      try {
+        const response = await fetch("/api/drafts", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ draftType: "catalog-product", draftKey: draft.id || "new", payload: { draft, specifications, customSpecifications } }) });
+        if (!response.ok) throw new Error();
+        setDraftSaveState("Draft saved " + new Date().toLocaleTimeString());
+      } catch { setDraftSaveState("Draft save failed"); }
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [editorOpen, canWriteGlobal, draft, specifications, customSpecifications]);
+
+  const restoreDraft = async (draftKey: string) => {
+    try {
+      const response = await fetch("/api/drafts?draftType=catalog-product&draftKey=" + encodeURIComponent(draftKey), { cache: "no-store" });
+      const payload = await response.json() as { draft?: { payload?: { draft?: Draft; specifications?: Record<string, unknown>; customSpecifications?: CustomSpecification[] } } | null };
+      const saved = payload.draft?.payload;
+      if (response.ok && saved?.draft) { setDraft(saved.draft); setSpecifications(saved.specifications ?? {}); setCustomSpecifications(saved.customSpecifications ?? []); setDraftSaveState("Recovered saved draft"); }
+    } catch { /* Offline mode keeps the current in-memory form. */ }
+  };
 
   const currentDefinitions = definitionsFor(draft.categoryId);
   const quickDefinitions = quickInput.categoryId === "all" ? [] : definitionsFor(quickInput.categoryId);
@@ -201,7 +241,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
     result, product: products.find((item) => item.id === result.productId) ?? null,
     material: materials.find((item) => "material:" + item.id === result.productId) ?? null,
   })), [quickMatches, products, materials]);
-  const runQuickMatch = () => {
+  const runQuickMatch = async () => {
     const hasInput = [quickInput.medium, quickInput.pressure, quickInput.temperature, quickInput.nominalSize, quickInput.connectionStandard, quickInput.materialsText, quickInput.brand, quickInput.standardsText, quickInput.certificationsText].some(Boolean) || Object.keys(quickInput.dynamic).length > 0 || quickInput.categoryId !== "all" || quickInput.systemCode !== "all";
     if (!hasInput) { notify("请至少输入一个选型条件；系统会在全部型录产品和材料主档中匹配"); return; }
     const requiredSpecifications = Object.fromEntries(Object.entries(quickInput.dynamic).filter(([, value]) => value !== "" && value !== null && value !== undefined).map(([key, value]) => {
@@ -215,7 +255,13 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
       requiredMaterialsJson: splitQuickList(quickInput.materialsText), requiredBrandsJson: splitQuickList(quickInput.brand),
       requiredStandardsJson: splitQuickList(quickInput.standardsText), requiredCertificationsJson: splitQuickList(quickInput.certificationsText), requiredSpecificationsJson: requiredSpecifications,
     };
-    const matches = matchCatalog(requirement, quickCandidates).map((item) => {
+    const response = await fetch("/api/catalog-products", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "match", requirement }) });
+    const payload = await response.json() as { error?: string; matches?: CatalogMatch[]; products?: Product[] };
+    if (!response.ok) { notify(payload.error || "Catalog match failed"); return; }
+    const matchedProducts = payload.products ?? [];
+    setProducts((current) => [...matchedProducts, ...current.filter((item) => !matchedProducts.some((matched) => matched.id === item.id))]);
+    const materialCandidates = quickCandidates.filter((item) => item.id.startsWith("material:"));
+    const matches = [...(payload.matches ?? []), ...matchCatalog(requirement, materialCandidates)].map((item) => {
       const checks = item.checks.map((check) => check.code === "medium" && check.status === "fail" && /(specialty|semiconductor.*gas|uhp.*gas|process gas|all gas)/i.test(check.actual)
         ? { ...check, status: "warning" as const, message: "产品仅标注介质大类，需由工程师确认具体介质兼容性" }
         : check);
@@ -253,7 +299,8 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const startNew = () => {
     if (!canWriteGlobal) { notify("请使用平台管理员账号录入或维护全局产品型录"); return; }
     const initialCategory = categories[0]?.id ?? "";
-    setDraft(emptyDraft(initialCategory)); setSpecifications({}); setCustomSpecifications([]); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true);
+    setDraft(emptyDraft(initialCategory)); setSpecifications({}); setCustomSpecifications([]); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true); setDraftSaveState("");
+    void restoreDraft("new");
   };
 
   const editProduct = (product: Product) => {
@@ -263,7 +310,8 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
       systems: parseArray(product.applicableSystemsJson), mediaText: listText(product.mediaJson), materialsText: listText(product.wettedMaterialsJson),
       certificationsText: listText(product.certificationsJson), standardsText: listText(product.standardsJson),
     });
-    setSpecifications(stripCustomSpecifications(product.specificationsJson)); setCustomSpecifications(readCustomSpecifications(product.specificationsJson)); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true);
+    setSpecifications(stripCustomSpecifications(product.specificationsJson)); setCustomSpecifications(readCustomSpecifications(product.specificationsJson)); setPendingImages([]); setRemovedImageIds([]); setError(""); setEditorOpen(true); setDraftSaveState("");
+    void restoreDraft(product.id);
   };
 
   const updateDraft = (key: keyof Draft, value: unknown) => setDraft((current) => ({ ...current, [key]: value }));
@@ -379,6 +427,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
       };
 
       const finalItem = await uploadQueue(queuedImages, savedItem, keepImageIds, initialFiles);
+      await fetch("/api/drafts", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ draftType: "catalog-product", draftKey: wasNew ? "new" : savedItemId }) }).catch(() => undefined);
       setPendingImages([]); setEditorOpen(false);
       notify(queuedImages.length
         ? `${finalItem.brand} ${finalItem.model} 已写入 D1，${queuedImages.length} 张图片已保存到 R2`
@@ -441,6 +490,8 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
       </article>;
     })}</div> : <div className="card catalogEmpty"><i>◇</i><h3>没有符合条件的产品</h3><p>{products.length ? "请调整系统、分类或审核状态筛选条件" : "管理员可录入第一条产品，或在主数据中心批量导入 CSV / JSON"}</p>{canWriteGlobal && <button className="primaryButton" onClick={startNew}>＋ 录入产品</button>}</div>}
 
+    {nextCursor && !loading && <div className="catalogLoadMore"><button disabled={loadingMore} onClick={() => void loadProducts(false, nextCursor)}>{loadingMore ? "Loading..." : "Load 60 more products"}</button></div>}
+
     {editorOpen && <><div className="overlay catalogEditorOverlay" onClick={() => !saving && setEditorOpen(false)}/><aside className="catalogEditor"><header><div><span>PRODUCT SPECIFICATION ENTRY</span><h2>{draft.id ? "编辑产品规格" : "录入产品规格"}</h2><p>通用工程字段 + 分类动态字段 + 来源追溯，保存前自动校验</p></div><button disabled={saving} onClick={() => setEditorOpen(false)}>×</button></header>
       {error && <div className="masterError"><i>!</i><span><b>不能保存</b><small>{error}</small></span><button onClick={() => setError("")}>×</button></div>}
       <div className="catalogEditorBody">
@@ -495,7 +546,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
           <label><span>审核状态</span><select value={draft.status} onChange={(event) => updateDraft("status", event.target.value)}><option value="draft">待复核草稿</option><option value="pending_review">待审核</option><option value="approved">已批准</option><option value="conditional">有条件</option><option value="rejected">驳回</option></select></label>
         </div></section>
       </div>
-      <footer><div className={editorValid ? "valid" : "invalid"}><i>{editorValid ? "✓" : "!"}</i><span><b>{editorValid ? "产品规格校验通过" : `还有 ${editorValidation.issues.length + customValidationIssues.length} 个规格问题`}</b><small>{editorValid ? `内置字段和 ${customSpecifications.length} 个自定义字段将写入版本与审计日志` : [...editorValidation.issues.map((item) => item.label), ...customValidationIssues].slice(0, 3).join("、")}</small></span></div><button disabled={saving} onClick={() => setEditorOpen(false)}>取消</button><button className="primaryButton" disabled={saving || !editorValid} onClick={() => void save()}>{saving ? "保存中…" : draft.id ? "保存修改" : "创建产品"}</button></footer>
+      <footer><small className="catalogDraftState">{draftSaveState}</small><div className={editorValid ? "valid" : "invalid"}><i>{editorValid ? "✓" : "!"}</i><span><b>{editorValid ? "产品规格校验通过" : `还有 ${editorValidation.issues.length + customValidationIssues.length} 个规格问题`}</b><small>{editorValid ? `内置字段和 ${customSpecifications.length} 个自定义字段将写入版本与审计日志` : [...editorValidation.issues.map((item) => item.label), ...customValidationIssues].slice(0, 3).join("、")}</small></span></div><button disabled={saving} onClick={() => setEditorOpen(false)}>取消</button><button className="primaryButton" disabled={saving || !editorValid} onClick={() => void save()}>{saving ? "保存中…" : draft.id ? "保存修改" : "创建产品"}</button></footer>
     </aside></>}
   </>;
 }

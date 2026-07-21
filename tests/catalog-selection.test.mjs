@@ -85,7 +85,8 @@ test("product catalog exposes the all-library parameter matcher", async () => {
   const page = await readFile("app/product-catalog-page.tsx", "utf8");
   assert.match(page, /catalogQuickMatch/);
   assert.match(page, /runQuickMatch/);
-  assert.match(page, /productApplications,materials/);
+  assert.match(page, /productCategories,productParameterDefinitions,materials/);
+  assert.match(page, /payload\.applications/);
   assert.match(page, /quickCandidates/);
 });
 test("legacy material master rows can participate in all-library matching", () => {

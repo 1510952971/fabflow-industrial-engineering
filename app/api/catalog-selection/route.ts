@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, ne, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   attachments,
@@ -73,8 +73,25 @@ export async function POST(request: Request) {
 
       const [extraction] = await db.select().from(technicalSpecExtractions).where(and(eq(technicalSpecExtractions.projectId, projectId), eq(technicalSpecExtractions.requirementId, requirementId))).orderBy(desc(technicalSpecExtractions.createdAt)).limit(1);
       if (!extraction || extraction.status !== "confirmed") throw new ApiError(409, "请先完成技术规格书自动提取结果的人工确认", "TECHNICAL_SPEC_CONFIRMATION_REQUIRED");
-      const products = await db.select().from(catalogProducts);
-      const matches = matchCatalog(requirement, products.filter((item) => item.status !== "archived" && item.status !== "rejected"));
+      const candidateConditions = [
+        eq(catalogProducts.categoryId, requirement.categoryId),
+        ne(catalogProducts.status, "archived"), ne(catalogProducts.status, "rejected"),
+      ];
+      if (requirement.designPressureMpa != null) {
+        candidateConditions.push(gte(catalogProducts.maxPressureMpa, requirement.designPressureMpa));
+        candidateConditions.push(or(lte(catalogProducts.minPressureMpa, requirement.designPressureMpa), sql`${catalogProducts.minPressureMpa} IS NULL`)!);
+      }
+      if (requirement.designTemperatureC != null) {
+        candidateConditions.push(gte(catalogProducts.maxTemperatureC, requirement.designTemperatureC));
+        candidateConditions.push(or(lte(catalogProducts.minTemperatureC, requirement.designTemperatureC), sql`${catalogProducts.minTemperatureC} IS NULL`)!);
+      }
+      if (requirement.systemCode) candidateConditions.push(sql`EXISTS (
+        SELECT 1 FROM catalog_product_facets f WHERE f.product_id = ${catalogProducts.id}
+        AND f.facet_type = 'system' AND f.normalized_value = ${requirement.systemCode.trim().toLowerCase().replaceAll(" ", "").replaceAll("_", "").replaceAll("-", "").replaceAll("/", "")}
+      )`);
+      const products = await db.select().from(catalogProducts).where(and(...candidateConditions)).limit(2001);
+      if (products.length > 2000) throw new ApiError(409, "Too many candidates; add system, medium or operating conditions", "MATCH_SCOPE_TOO_BROAD");
+      const matches = matchCatalog(requirement, products);
       const runId = crypto.randomUUID();
       const usable = matches.filter((item) => item.status !== "blocked").length;
       await db.insert(catalogSelectionRuns).values({

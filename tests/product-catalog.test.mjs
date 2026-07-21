@@ -45,7 +45,11 @@ test("catalog UI and API expose source traceability, variants, applications and 
 
 
   const source = await (await import("node:fs/promises")).readFile(new URL("../app/product-catalog-page.tsx", import.meta.url), "utf8");
-  assert.match(source, /productCategories,productParameterDefinitions,catalogProducts,productVariants,productApplications/);
+  assert.match(source, /productCategories,productParameterDefinitions,materials/);
+  assert.match(source, /payload\.variants/);
+  assert.match(source, /payload\.applications/);
+  assert.match(source, /\/api\/catalog-products/);
+  assert.match(source, /nextCursor/);
   assert.match(source, /sourceDocument/);
   assert.match(source, /适用系统/);
   assert.match(source, /按规格书选型/);

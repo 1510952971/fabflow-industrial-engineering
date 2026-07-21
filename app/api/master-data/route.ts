@@ -33,6 +33,7 @@ import {
 import { recordVersions } from "@/db/workflow-schema";
 import { ApiError, errorResponse } from "@/lib/api";
 import { writeAudit } from "@/lib/audit";
+import { syncCatalogProductFacets } from "@/lib/catalog-facets";
 import { assertAuthenticated, assertProjectAccess, authorize, PUBLIC_DEMO_PROJECT_ID, type Principal } from "@/lib/auth";
 import { validateProductSpecifications, type ProductParameterDefinition } from "@/lib/product-catalog";
 
@@ -401,6 +402,7 @@ export async function POST(request: Request) {
         if (entity === "purchaseOrders") await assertProjectReleasedForPurchase(row);
         if (entity === "catalogProducts") await assertCatalogProductValid(row);
         await db.insert(config.table).values(row);
+        if (entity === "catalogProducts") await syncCatalogProductFacets(row);
         created.push(row);
         await writeAudit(request, principal, { projectId: projectIdFor(entity, row), action: `${entity}.import`, entityType: entity, entityId: String(row.id), after: row });
       }
@@ -414,6 +416,7 @@ export async function POST(request: Request) {
     const db = getDb();
     await db.insert(config.table).values(row);
     const [created] = await db.select().from(config.table).where(eq(config.idColumn, row.id)).limit(1);
+    if (entity === "catalogProducts") await syncCatalogProductFacets((created ?? row) as Record<string, unknown>);
     await writeVersion(entity, (created ?? row) as Record<string, unknown>, "create", principal.email);
     await writeAudit(request, principal, { projectId: projectIdFor(entity, row), action: `${entity}.create`, entityType: entity, entityId: String(row.id), after: created ?? row });
     return Response.json({ item: created ?? row }, { status: 201 });
@@ -442,6 +445,7 @@ export async function PATCH(request: Request) {
     if (entity === "catalogProducts") await assertCatalogProductValid({ ...before, ...values });
     await db.update(config.table).set({ ...values, updatedAt: new Date().toISOString() }).where(eq(config.idColumn, body.id));
     const [after] = await db.select().from(config.table).where(eq(config.idColumn, body.id)).limit(1);
+    if (entity === "catalogProducts") await syncCatalogProductFacets(after as Record<string, unknown>);
     await writeVersion(entity, after as Record<string, unknown>, "update", principal.email);
     await writeAudit(request, principal, { projectId: projectIdFor(entity, before), action: `${entity}.update`, entityType: entity, entityId: body.id, before, after });
     return Response.json({ item: after });

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, ne } from "drizzle-orm";
+import { and, count, desc, eq, lt, ne, or } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
 import { attachments } from "@/db/schema";
@@ -7,6 +7,19 @@ import { assertAuthenticated, assertProjectAccess, authorize, getPrincipal, hasP
 import { writeAudit } from "@/lib/audit";
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const MAX_LIST_SIZE = 100;
+
+function decodeCursor(value: string | null) {
+  if (!value) return null;
+  try {
+    const decoded = JSON.parse(atob(value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "="))) as { createdAt?: string; id?: string };
+    return decoded.createdAt && decoded.id ? { createdAt: decoded.createdAt, id: decoded.id } : null;
+  } catch { throw new ApiError(400, "Invalid attachment cursor", "INVALID_CURSOR"); }
+}
+
+function encodeCursor(createdAt: string, id: string) {
+  return btoa(JSON.stringify({ createdAt, id })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
 const allowedEntities = new Set([
   "project", "system", "tag", "interface", "material", "equipment_model", "selection_run",
   "test_pack", "punch", "approval", "projects", "systems", "tags", "interfaces", "materials",
@@ -55,9 +68,15 @@ export async function GET(request: Request) {
     const category = url.searchParams.get("category");
     if (!publicCatalogImages && category) conditions.push(eq(attachments.category, category));
     if (url.searchParams.get("includeArchived") !== "1" || !principal.roles.includes("platform_admin")) conditions.push(ne(attachments.status, "archived"));
-    const rows = await getDb().select().from(attachments).where(and(...conditions)).orderBy(desc(attachments.createdAt)).limit(100);
-    const responseRows = publicCatalogImages ? rows.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== "objectKey"))) : rows;
-    return Response.json({ files: responseRows });
+    const cursor = decodeCursor(url.searchParams.get("cursor"));
+    const limit = Math.min(MAX_LIST_SIZE, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
+    if (cursor) conditions.push(or(lt(attachments.createdAt, cursor.createdAt), and(eq(attachments.createdAt, cursor.createdAt), lt(attachments.id, cursor.id)))!);
+    const rows = await getDb().select().from(attachments).where(and(...conditions)).orderBy(desc(attachments.createdAt), desc(attachments.id)).limit(limit + 1);
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const responseRows = publicCatalogImages ? pageRows.map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== "objectKey"))) : pageRows;
+    const last = pageRows.at(-1);
+    return Response.json({ files: responseRows, nextCursor: hasMore && last ? encodeCursor(last.createdAt, last.id) : null });
   } catch (error) {
     return errorResponse(error);
   }
