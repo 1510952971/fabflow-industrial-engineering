@@ -19,7 +19,9 @@
     "cloudflare:whoami": "wrangler whoami",
     "cloudflare:types": "wrangler types --config wrangler.jsonc --env-interface CloudflareEnv",
     "deploy:cloudflare": "vinext deploy",
-    "catalog:manifest": "node --experimental-strip-types scripts/build-catalog-source-manifest.mjs"
+    "catalog:manifest": "node --experimental-strip-types scripts/build-catalog-source-manifest.mjs",
+    "catalog:import-preview": "node --experimental-strip-types scripts/import-catalog-folder-local.mjs",
+    "catalog:import-local": "node --experimental-strip-types scripts/import-catalog-folder-local.mjs --apply"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
