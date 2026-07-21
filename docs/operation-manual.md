@@ -21,6 +21,8 @@ npm run dev
 
 本地需要一次性录入整个 `材料型录/` 文件夹时，先运行 `npm run catalog:manifest` 更新资料清单，再运行 `npm run catalog:import-preview` 核对预计数量，最后运行 `npm run catalog:import-local`。该命令会先在 `work/backups/` 备份本地 D1，然后登记全部来源文件、按“厂家 + 型号/配置”去重、建立产品草稿和系统适用性记录。自动生成的产品一律保持 `draft`，不会绕过技术审核成为批准产品；无法从文件名安全识别唯一型号的型录、表格和扫描件进入待复核队列。
 
+产品草稿建立后运行 `npm run catalog:enrich-preview` 和 `npm run catalog:enrich-local`。正文解析会从关联 PDF 提取压力、温度、口径、连接、接液材质、表面处理、流量、电源、通讯、防护等级、危险区等级、认证、标准和分类专用参数，并保存来源页码与原文证据。没有文字层的扫描件标记为 `ocr_required`，不得用空值或推测值冒充样册参数；所有自动值仍需工程师复核后才能批准。
+
 ## 2. 五步设计与选型主流程
 
 ### 第一步：创建项目

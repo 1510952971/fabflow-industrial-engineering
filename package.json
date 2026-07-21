@@ -21,7 +21,9 @@
     "deploy:cloudflare": "vinext deploy",
     "catalog:manifest": "node --experimental-strip-types scripts/build-catalog-source-manifest.mjs",
     "catalog:import-preview": "node --experimental-strip-types scripts/import-catalog-folder-local.mjs",
-    "catalog:import-local": "node --experimental-strip-types scripts/import-catalog-folder-local.mjs --apply"
+    "catalog:import-local": "node --experimental-strip-types scripts/import-catalog-folder-local.mjs --apply",
+    "catalog:enrich-preview": "node --experimental-strip-types scripts/enrich-catalog-products-local.mjs",
+    "catalog:enrich-local": "node --experimental-strip-types scripts/enrich-catalog-products-local.mjs --apply"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
