@@ -22,6 +22,12 @@ const moduleSlugs: Record<string, string> = {
 
 const slugModules = Object.fromEntries(Object.entries(moduleSlugs).map(([module, slug]) => [slug, module]));
 
+export function moduleFromSlug(slug: string | undefined) {
+  if (!slug) return "项目工作台";
+  const decoded = decodeURIComponent(slug);
+  return slugModules[decoded] ?? decoded;
+}
+
 function pathParts() {
   if (typeof window === "undefined") return [];
   return window.location.pathname.split("/").filter(Boolean);
@@ -38,7 +44,7 @@ export function getCurrentProjectId() {
 export function getCurrentModule() {
   if (typeof window === "undefined") return "项目工作台";
   const parts = pathParts();
-  if (parts[0] === "projects" && parts[2]) return slugModules[decodeURIComponent(parts[2])] ?? decodeURIComponent(parts[2]);
+  if (parts[0] === "projects" && parts[2]) return moduleFromSlug(parts[2]);
   return new URLSearchParams(window.location.search).get("module") || "项目工作台";
 }
 

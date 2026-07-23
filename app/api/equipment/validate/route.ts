@@ -35,17 +35,29 @@ export async function POST(request: Request) {
 
     const validation = validateSelection({ ...payload, technicalRule: technicalRule ?? undefined, brandRule: brandRule ?? null }, component, material, compatibility ?? null, port ?? null);
     const runId = crypto.randomUUID();
-    await db.insert(selectionRuns).values({
-      id: runId,
-      projectId,
-      equipmentModelId: model.id,
-      componentId: component.id,
-      status: validation.status,
-      score: validation.score,
-      submittedBy: principal.email,
-      inputJson: JSON.stringify(payload),
-    });
-    await db.insert(selectionResults).values(validation.results.map((result) => ({ id: crypto.randomUUID(), runId, ...result })));
+    try {
+      await db.insert(selectionRuns).values({
+        id: runId,
+        projectId,
+        equipmentModelId: model.id,
+        componentId: component.id,
+        status: validation.status,
+        score: validation.score,
+        submittedBy: principal.email,
+        inputJson: JSON.stringify(payload),
+      });
+      const resultRows = validation.results.map((result) => ({ id: crypto.randomUUID(), runId, ...result }));
+      // D1 limits bound variables per statement. Ten rows stay below that limit
+      // even when the engineering rule set grows additional result columns.
+      for (let offset = 0; offset < resultRows.length; offset += 10) {
+        await db.insert(selectionResults).values(resultRows.slice(offset, offset + 10));
+      }
+    } catch (error) {
+      // Do not leave an orphan run when result persistence fails partway through.
+      await db.delete(selectionResults).where(eq(selectionResults.runId, runId)).catch(() => undefined);
+      await db.delete(selectionRuns).where(eq(selectionRuns.id, runId)).catch(() => undefined);
+      throw error;
+    }
     await writeAudit(request, principal, {
       projectId, action: "equipment.selection.validate", entityType: "selection_run", entityId: runId,
       after: { equipment: model.code, component: component.componentCode, material: material.code, status: validation.status, score: validation.score },

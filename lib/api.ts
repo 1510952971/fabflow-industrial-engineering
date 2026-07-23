@@ -8,9 +8,8 @@ export function errorResponse(error: unknown) {
   if (error instanceof ApiError) {
     return Response.json({ error: error.message, code: error.code }, { status: error.status });
   }
-  const message = error instanceof Error ? error.message : "Unexpected error";
   console.error(error);
-  return Response.json({ error: message, code: "INTERNAL_ERROR" }, { status: 500 });
+  return Response.json({ error: "服务端处理失败，请稍后重试或联系管理员", code: "INTERNAL_ERROR" }, { status: 500 });
 }
 
 export function requestId(request: Request) {

@@ -16,4 +16,6 @@ test("small laptop master-data layout preserves readable type hierarchy and usab
   assert.match(masterCss, /overflow-y:auto/);
   assert.match(globalCss, /max-width:1680px/);
   assert.match(globalCss, /@media\(max-width:1500px\)[\s\S]*?\.sidebar\{width:224px/);
+  assert.match(globalCss, /.softButton,.primaryButton,.exportButton{[^}]*font-size:12px/);
+  assert.match(globalCss, /.drawerTab{[^}]*font-size:12px/);
 });

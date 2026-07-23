@@ -34,7 +34,9 @@ const workflowSteps = [
   {no:"05", title:"交付归档", hint:"测试包 / Punch / 竣工", target:"项目档案库", group:"delivery", state:"待进入"},
 ];
 
-export default function Home() {
+type HomeProps = { initialProjectId?: string; initialModule?: string };
+
+export default function Home({ initialProjectId = "", initialModule = "项目工作台" }: HomeProps = {}) {
   const [dark, setDark] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
@@ -43,11 +45,12 @@ export default function Home() {
   const [thickness, setThickness] = useState(2);
   const [points, setPoints] = useState(128);
   const [quantity, setQuantity] = useState(8);
-  const [active, setActive] = useState("项目工作台");
-  const [projectId, setProjectId] = useState("");
+  const [active, setActive] = useState(initialModule);
+  const [projectId, setProjectId] = useState(initialProjectId);
   const [projects, setProjects] = useState<Array<{id:string;code:string;name:string}>>([]);
   const [principal, setPrincipal] = useState({displayName:"公开演示访客",email:"public@fabflow.demo",roles:["public_viewer"],authenticated:false});
   const [canWrite, setCanWrite] = useState(false);
+  const [authResolved, setAuthResolved] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({project:true, design:true, systems:false, delivery:false, tools:false});
   const [added, setAdded] = useState<string[]>([]);
   const [materialFilter, setMaterialFilter] = useState("全部");
@@ -91,7 +94,7 @@ export default function Home() {
     setProjectId(getCurrentProjectId()); setActive(getCurrentModule());
     const onPopState = () => { setProjectId(getCurrentProjectId()); setActive(getCurrentModule()); };
     window.addEventListener("popstate", onPopState);
-    void fetch("/api/master-data?entity=projects&allProjects=1&pageSize=100").then((response) => response.json()).then((payload) => { const rows=(payload.data?.projects ?? []) as Array<{id:string;code:string;name:string}>; setProjects(rows); if(payload.principal) setPrincipal(payload.principal); setCanWrite(Boolean(payload.permissions?.canWrite)); if(!getCurrentProjectId()&&rows[0]){setProjectId(rows[0].id);updateProjectUrl(rows[0].id,getCurrentModule(),true)} }).catch(() => undefined);
+    void fetch("/api/master-data?entity=projects&allProjects=1&pageSize=100").then((response) => response.json()).then((payload) => { const rows=(payload.data?.projects ?? []) as Array<{id:string;code:string;name:string}>; setProjects(rows); if(payload.principal) setPrincipal(payload.principal); setCanWrite(Boolean(payload.permissions?.canWrite)); if(!getCurrentProjectId()&&rows[0]){setProjectId(rows[0].id);updateProjectUrl(rows[0].id,getCurrentModule(),true)} }).catch(() => undefined).finally(()=>setAuthResolved(true));
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
   useEffect(() => {
@@ -106,7 +109,7 @@ export default function Home() {
       <nav className="navGroups">{navGroups.map(group=><div className="navGroup" key={group.id}><button className="navGroupTitle" onClick={()=>setOpenGroups(x=>({...x,[group.id]:!x[group.id]}))}><span><em>{group.icon}</em><b>{group.title}</b></span><i>{openGroups[group.id]?"−":"＋"}</i></button>{openGroups[group.id]&&<div className="navGroupItems">{group.items.map(([icon,label])=><button key={label} className={active===label?"active":""} onClick={()=>activate(label,group.id)} title={label}><em>{icon}</em><span>{label}</span>{label==="合规校验中心"&&<small>3</small>}</button>)}</div>}</div>)}</nav>
       <div className="sidebarBottom">
         <button className="themeSwitch" onClick={()=>setDark(!dark)}><em>{dark?"☾":"☼"}</em><span>{dark?"暗黑工程版":"浅色办公版"}</span><i className={dark?"on":""}/></button>
-        <div className="profile"><div>{principal.displayName.slice(0,2).toUpperCase()}</div><span><b>{principal.displayName}</b><small>{principal.authenticated?principal.roles.join(" · "):"公开只读演示"}</small></span><button onClick={()=>setProfileOpen(!profileOpen)} aria-label="打开账户菜单">···</button></div>
+        <div className="profile"><div>{authResolved?principal.displayName.slice(0,2).toUpperCase():"…"}</div><span><b>{authResolved?principal.displayName:"正在校验身份"}</b><small>{authResolved?(principal.authenticated?principal.roles.join(" · "):"公开只读演示"):"服务端权限校验中"}</small></span><button disabled={!authResolved} onClick={()=>setProfileOpen(!profileOpen)} aria-label="打开账户菜单">···</button></div>
         {profileOpen&&<div className="profileMenu">{!principal.authenticated?<button onClick={()=>{setLoginOpen(true);setProfileOpen(false)}}>⇥ 登录账号</button>:<><button onClick={()=>{setChangePasswordOpen(true);setProfileOpen(false)}}>⚑ 修改我的密码</button><button onClick={()=>void logout()}>↪ 安全退出</button></>}<button onClick={()=>{activate("工程主数据录入","delivery");setProfileOpen(false)}}>✎ 主数据录入</button>{principal.roles.includes("platform_admin")&&<button onClick={()=>{window.sessionStorage.setItem("fabflow:data-foundation-tab","权限与审批");window.dispatchEvent(new CustomEvent("fabflow:data-foundation-tab",{detail:"权限与审批"}));activate("数据底座与协同","delivery");setProfileOpen(false)}}>◌ 账号与权限管理</button>}</div>}
       </div>
     </aside>
@@ -114,7 +117,7 @@ export default function Home() {
     <section className="workspace">
       <header>
         <div><p>项目工作台 <span>/ {projects.find((project) => project.id === projectId)?.code ?? projectId}</span></p><h1>{projects.find((project) => project.id === projectId)?.name ?? "先进制程厂务扩建项目"}</h1></div>
-        <div className="projectSwitcher"><span className={canWrite?"projectAccessBadge writable":"projectAccessBadge readonly"}>{canWrite?"可编辑":"公开只读"}</span><label>当前项目<select value={projectId} onChange={(event) => { setProjectId(event.target.value); setActive("项目工作台"); updateProjectUrl(event.target.value, "项目工作台"); }}>{projects.length ? projects.map((project) => <option key={project.id} value={project.id}>{project.code} · {project.name}</option>) : <option value={projectId}>{projectId}</option>}</select></label></div>
+        <div className="projectSwitcher"><span className={authResolved?(canWrite?"projectAccessBadge writable":"projectAccessBadge readonly"):"projectAccessBadge"}>{authResolved?(canWrite?"可编辑":"公开只读"):"权限校验中"}</span><label>当前项目<select value={projectId} onChange={(event) => { setProjectId(event.target.value); setActive("项目工作台"); updateProjectUrl(event.target.value, "项目工作台"); }}>{projects.length ? projects.map((project) => <option key={project.id} value={project.id}>{project.code} · {project.name}</option>) : <option value={projectId}>{projectId}</option>}</select></label></div>
         <div className="headerActions">{principal.roles.includes("platform_admin")&&<button className="softButton" onClick={()=>setProjectWizardOpen(true)}>＋ 创建项目</button>}<button className="iconBtn" onClick={()=>setDrawer(true)}>⇄</button><button className="iconBtn" onClick={()=>activate("工程主数据录入","delivery")} title="搜索与编辑工程主数据">⌕</button><button className="primary" title={canWrite?"进入工程主数据录入":"登录账号后按项目角色开放编辑"} onClick={()=>canWrite?activate("工程主数据录入","delivery"):setLoginOpen(true)}>{canWrite?"录入 / 保存数据":"账号登录"} <span>{canWrite?"⌘ S":"⇥"}</span></button></div>
       </header>
 
