@@ -74,7 +74,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const principal = await authorize(request, "equipment:read");
-    const body = await request.json() as { action?: string; requirement?: CatalogRequirement; ids?: string[]; status?: string };
+    let body: { action?: string; requirement?: CatalogRequirement; ids?: string[]; status?: string };
+    try { body = await request.json() as typeof body; }
+    catch { throw new ApiError(400, "请求正文必须是有效 JSON", "INVALID_JSON"); }
     if (body.action === "review") {
       assertAuthenticated(principal);
       if (!principal.roles.includes("platform_admin")) throw new ApiError(403, "只有平台管理员可以审核全局产品型录", "GLOBAL_SCOPE_REQUIRED");

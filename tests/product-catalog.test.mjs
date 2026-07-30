@@ -82,6 +82,7 @@ test("catalog review workflow is permissioned, validated and cannot be bypassed"
   assert.doesNotMatch(page, /<option value="approved">已批准<\/option>.*送审与批准请使用型录审核工作台/);
   assert.match(reviewRoute, /principal\.roles\.includes\("platform_admin"\)/);
   assert.match(reviewRoute, /ids\.length > 100/);
+  assert.match(reviewRoute, /INVALID_JSON/);
   assert.match(reviewRoute, /row\.status !== "pending_review"/);
   assert.match(reviewRoute, /sourcePage/);
   assert.match(reviewRoute, /catalog_product\.\$\{body\.status\}/);
