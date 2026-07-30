@@ -62,4 +62,31 @@ test("catalog UI and API expose source traceability, variants, applications and 
   assert.match(source, /archiveProductImage\(uploaded\.id\)/);
   const filesRoute = await (await import("node:fs/promises")).readFile(new URL("../app/api/files/route.ts", import.meta.url), "utf8");
   assert.match(filesRoute, /catalogProducts/);
-  assert.match(filesRoute, /inline/);});
+  assert.match(filesRoute, /inline/);
+});
+
+test("catalog review workflow is permissioned, validated and cannot be bypassed", async () => {
+  const fs = await import("node:fs/promises");
+  const [page, reviewRoute, masterRoute, css] = await Promise.all([
+    fs.readFile(new URL("../app/product-catalog-page.tsx", import.meta.url), "utf8"),
+    fs.readFile(new URL("../app/api/catalog-products/route.ts", import.meta.url), "utf8"),
+    fs.readFile(new URL("../app/api/master-data/route.ts", import.meta.url), "utf8"),
+    fs.readFile(new URL("../app/product-catalog.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /型录审核工作台/);
+  assert.match(page, /资料完整度/);
+  assert.match(page, /选择当前结果/);
+  assert.match(page, /batchReview\("pending_review"\)/);
+  assert.match(page, /batchReview\("approved"\)/);
+  assert.match(page, /canReviewCatalog/);
+  assert.doesNotMatch(page, /<option value="approved">已批准<\/option>.*送审与批准请使用型录审核工作台/);
+  assert.match(reviewRoute, /principal\.roles\.includes\("platform_admin"\)/);
+  assert.match(reviewRoute, /ids\.length > 100/);
+  assert.match(reviewRoute, /row\.status !== "pending_review"/);
+  assert.match(reviewRoute, /sourcePage/);
+  assert.match(reviewRoute, /catalog_product\.\$\{body\.status\}/);
+  assert.match(masterRoute, /CATALOG_REVIEW_REQUIRED/);
+  assert.match(masterRoute, /canReviewCatalog/);
+  assert.match(css, /catalogReviewBar/);
+  assert.match(css, /productCatalogCard\.selected/);
+});

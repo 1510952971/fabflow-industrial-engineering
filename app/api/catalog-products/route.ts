@@ -1,9 +1,11 @@
 import { and, desc, eq, gte, inArray, like, lt, lte, ne, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { catalogProducts, productApplications, productVariants } from "@/db/schema";
+import { catalogProducts, productApplications, productParameterDefinitions, productVariants } from "@/db/schema";
 import { ApiError, errorResponse } from "@/lib/api";
-import { authorize } from "@/lib/auth";
+import { assertAuthenticated, authorize } from "@/lib/auth";
+import { writeAudit } from "@/lib/audit";
 import { matchCatalog, parseJsonArray, type CatalogRequirement } from "@/lib/catalog-selection-engine";
+import { validateProductSpecifications, type ProductParameterDefinition } from "@/lib/product-catalog";
 
 const DEFAULT_LIMIT = 60;
 const MAX_LIMIT = 200;
@@ -71,8 +73,31 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    await authorize(request, "equipment:read");
-    const body = await request.json() as { action?: string; requirement?: CatalogRequirement };
+    const principal = await authorize(request, "equipment:read");
+    const body = await request.json() as { action?: string; requirement?: CatalogRequirement; ids?: string[]; status?: string };
+    if (body.action === "review") {
+      assertAuthenticated(principal);
+      if (!principal.roles.includes("platform_admin")) throw new ApiError(403, "只有平台管理员可以审核全局产品型录", "GLOBAL_SCOPE_REQUIRED");
+      const ids = [...new Set((body.ids ?? []).map(String).filter(Boolean))];
+      if (!ids.length || ids.length > 100) throw new ApiError(400, "每次请选择 1-100 个产品", "INVALID_BATCH");
+      if (body.status !== "pending_review" && body.status !== "approved") throw new ApiError(400, "审核状态无效", "INVALID_STATUS");
+      const db = getDb();
+      const rows = await db.select().from(catalogProducts).where(inArray(catalogProducts.id, ids));
+      const missingIds = ids.filter((id) => !rows.some((row) => row.id === id));
+      const categoryIds = [...new Set(rows.map((row) => row.categoryId))];
+      const definitions = categoryIds.length ? await db.select().from(productParameterDefinitions).where(inArray(productParameterDefinitions.categoryId, categoryIds)) : [];
+      const updated = []; const failures: Array<{ id: string; productCode: string; issues: string[] }> = missingIds.map((id) => ({ id, productCode: id, issues: ["产品不存在或已被删除"] }));
+      for (const row of rows) {
+        const issues = reviewIssues(row, definitions as ProductParameterDefinition[], body.status);
+        if (body.status === "approved" && row.status !== "pending_review") issues.unshift("产品必须先进入待审核状态");
+        if (issues.length) { failures.push({ id: row.id, productCode: row.productCode, issues }); continue; }
+        const after = { status: body.status, updatedAt: new Date().toISOString() };
+        await db.update(catalogProducts).set(after).where(eq(catalogProducts.id, row.id));
+        updated.push({ ...row, ...after });
+        await writeAudit(request, principal, { projectId: null, action: `catalog_product.${body.status}`, entityType: "catalogProducts", entityId: row.id, before: { status: row.status }, after });
+      }
+      return Response.json({ updated, failures }, { status: failures.length && !updated.length ? 409 : 200 });
+    }
     if (body.action !== "match" || !body.requirement) throw new ApiError(400, "选型请求无效", "INVALID_INPUT");
     const requirement = body.requirement;
     const conditions = [ne(catalogProducts.status, "archived"), ne(catalogProducts.status, "rejected")];
@@ -97,4 +122,17 @@ export async function POST(request: Request) {
     const byId = new Map(candidates.map((item) => [item.id, item]));
     return Response.json({ matches, products: matches.map((item) => byId.get(item.productId)).filter(Boolean), candidateCount: candidates.length, truncated: false });
   } catch (error) { return errorResponse(error); }
+}
+
+function reviewIssues(row: typeof catalogProducts.$inferSelect, definitions: ProductParameterDefinition[], targetStatus: string) {
+  const issues: string[] = [];
+  if (!parseJsonArray(row.applicableSystemsJson).length) issues.push("至少选择一个适用系统");
+  if (!row.sourceDocument && !row.sourceUrl) issues.push("缺少来源文件或厂家正式链接");
+  if (targetStatus === "approved" && row.sourceDocument && !row.sourcePage && !row.sourceUrl) issues.push("缺少来源页码");
+  for (const [value, label] of [[row.manufacturer, "制造商"], [row.brand, "品牌"], [row.productCode, "产品编码"], [row.productName, "产品名称"], [row.model, "完整型号"]]) {
+    if (!String(value ?? "").trim()) issues.push(`缺少${label}`);
+  }
+  const result = validateProductSpecifications(row.specificationsJson, definitions.filter((item) => item.categoryId === row.categoryId && item.status !== "archived"));
+  issues.push(...result.issues.map((issue) => issue.message));
+  return [...new Set(issues)];
 }

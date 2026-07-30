@@ -122,12 +122,16 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [canWriteGlobal, setCanWriteGlobal] = useState(false);
+  const [canReviewCatalog, setCanReviewCatalog] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [systemCode, setSystemCode] = useState("all");
   const [categoryId, setCategoryId] = useState("all");
   const [status, setStatus] = useState("all");
+  const [reviewFilter, setReviewFilter] = useState("all");
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [reviewBusy, setReviewBusy] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -176,12 +180,13 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
     setLoading(true); setError("");
     try {
       const response = await fetch("/api/master-data?entities=productCategories,productParameterDefinitions,materials&pageSize=500", { cache: "no-store" });
-      const payload = await response.json() as { error?: string; data?: { productCategories?: Category[]; productParameterDefinitions?: ProductParameterDefinition[]; catalogProducts?: Product[]; productVariants?: Variant[]; productApplications?: Application[]; materials?: Material[] }; permissions?: { canWriteGlobal?: boolean } };
+      const payload = await response.json() as { error?: string; data?: { productCategories?: Category[]; productParameterDefinitions?: ProductParameterDefinition[]; catalogProducts?: Product[]; productVariants?: Variant[]; productApplications?: Application[]; materials?: Material[] }; permissions?: { canWriteGlobal?: boolean; canReviewCatalog?: boolean } };
       if (!response.ok) throw new Error(payload.error || "产品型录加载失败");
       setCategories((payload.data?.productCategories ?? []).filter((item) => item.status !== "archived"));
       setDefinitions((payload.data?.productParameterDefinitions ?? []).filter((item) => item.status !== "archived"));
       setMaterials(payload.data?.materials ?? []);
       setCanWriteGlobal(Boolean(payload.permissions?.canWriteGlobal));
+      setCanReviewCatalog(Boolean(payload.permissions?.canReviewCatalog));
       await loadProducts(true);
       void loadImages();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "产品型录加载失败"); }
@@ -200,7 +205,34 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
 
   const categoryMap = useMemo(() => new Map(categories.map((item) => [item.id, item])), [categories]);
   const definitionsFor = (targetCategoryId: string) => definitions.filter((item) => item.categoryId === targetCategoryId).sort((a, b) => a.sortOrder - b.sortOrder);
-  const shown = products;
+  const readiness = (product: Product, targetStatus: "pending_review" | "approved" = "approved") => {
+    const issues = completeness(product).issues.map((item) => item.message);
+    if (!parseArray(product.applicableSystemsJson).length) issues.push("缺少适用系统");
+    if (!product.sourceDocument && !product.sourceUrl) issues.push("缺少来源证据");
+    if (targetStatus === "approved" && product.sourceDocument && !product.sourcePage && !product.sourceUrl) issues.push("缺少来源页码");
+    return [...new Set(issues)];
+  };
+  const shown = products.filter((product) => reviewFilter === "all" || (reviewFilter === "ready" ? readiness(product, "pending_review").length === 0 : reviewFilter === "incomplete" ? readiness(product, "pending_review").length > 0 : reviewFilter === "missing_source" ? !product.sourceDocument && !product.sourceUrl : true));
+  const reviewPage = shown.slice(0, 100);
+  const allShownSelected = reviewPage.length > 0 && reviewPage.every((product) => selectedProductIds.includes(product.id));
+
+  const batchReview = async (targetStatus: "pending_review" | "approved") => {
+    if (!selectedProductIds.length) { notify("请先选择需要审核的产品"); return; }
+    if (selectedProductIds.length > 100) { notify("每批最多审核 100 个产品，请缩小选择范围"); return; }
+    setReviewBusy(true); setError("");
+    try {
+      const response = await fetch("/api/catalog-products", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "review", ids: selectedProductIds, status: targetStatus }) });
+      const payload = await response.json() as { error?: string; updated?: Product[]; failures?: Array<{ productCode: string; issues: string[] }> };
+      const updated = payload.updated ?? [];
+      setProducts((current) => current.map((item) => updated.find((row) => row.id === item.id) ?? item));
+      setSelectedProductIds((current) => current.filter((id) => !updated.some((row) => row.id === id)));
+      const failureMessage = payload.failures?.slice(0, 5).map((item) => `${item.productCode}：${item.issues.join("、")}`).join("；") ?? "";
+      if (failureMessage) setError(failureMessage);
+      if (!response.ok && !updated.length) throw new Error(failureMessage || payload.error || "产品审核未通过");
+      notify(`${updated.length} 个产品已${targetStatus === "approved" ? "批准" : "送审"}${payload.failures?.length ? `，${payload.failures.length} 个需补资料` : ""}`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "产品审核失败"); }
+    finally { setReviewBusy(false); }
+  };
 
   useEffect(() => {
     if (!editorOpen || !canWriteGlobal) return;
@@ -307,6 +339,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
     if (!canWriteGlobal) { setDetailId(product.id); notify("当前为公开只读浏览；管理员登录后可编辑产品规格"); return; }
     setDraft({
       ...product,
+      status: ["pending_review", "approved"].includes(product.status) ? "draft" : product.status,
       systems: parseArray(product.applicableSystemsJson), mediaText: listText(product.mediaJson), materialsText: listText(product.wettedMaterialsJson),
       certificationsText: listText(product.certificationsJson), standardsText: listText(product.standardsJson),
     });
@@ -473,18 +506,20 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
       {quickRows.length > 0 && <div className="catalogQuickResults"><div className="catalogQuickResultsTitle"><b>匹配结果</b><span>显示前 {Math.min(quickRows.length, 20)} 条，共 {quickRows.length} 条</span></div>{quickRows.slice(0, 20).map(({ result, product, material }) => { const name = product?.productName || material?.name || result.productId; const code = product ? product.brand + " · " + product.model : material ? "材料主档 · " + material.manufacturer + " · " + material.grade : ""; const category = product ? categoryMap.get(product.categoryId)?.name || "未分类" : "材料"; return <article className={"quickMatchResult " + result.status} key={result.productId}><header><strong>{result.score}</strong><div><b>{name}</b><small>{category} · {code}</small></div><em>{result.status === "passed" ? "推荐" : result.status === "attention" ? "需确认" : "不符合"}</em></header><div className="quickMatchChecks">{result.checks.slice(0, 5).map((check) => <p className={check.status} key={check.code}><i>{check.status === "pass" ? "✓" : check.status === "warning" ? "!" : "×"}</i><span><b>{check.label}</b><small>{check.status === "pass" ? "符合" : check.message} · {check.actual || "未填写"}</small></span></p>)}</div><footer>{product && <button onClick={() => { setDetailId(product.id); document.getElementById("catalog-product-" + product.id)?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>查看产品详情</button>}{material && <button onClick={() => notify(material.code + " 已定位到材料主档，可在项目技术规格选型中引用")}>查看材料主档</button>}</footer></article>; })}</div>}
     </section>
     <section className="card catalogCoverage"><div><span>产品分类</span><b>{categories.length}<em> 类</em></b><small>管理员可继续扩展</small></div><div><span>规格字段</span><b>{definitions.length}<em> 项</em></b><small>按分类动态显示</small></div><div><span>产品主档</span><b>{products.length}<em> 个</em></b><small>{products.filter((item) => item.status === "approved").length} 个已批准</small></div><div><span>来源可追溯</span><b>{sourcedCount}<em> / {products.length}</em></b><small>本地型录或厂家正式链接</small></div></section>
+    {canReviewCatalog && <section className="card catalogReviewBar"><div><span>CATALOG REVIEW</span><b>型录审核工作台</b><small>草稿先送审，待审核产品核对来源页码后才能批准</small></div><strong>已选择 {selectedProductIds.length} / 100 项</strong><div className="catalogReviewActions"><button disabled={!shown.length || reviewBusy} onClick={() => setSelectedProductIds((current) => allShownSelected ? current.filter((id) => !reviewPage.some((product) => product.id === id)) : reviewPage.map((product) => product.id))}>{allShownSelected ? "取消当前全选" : "选择当前结果"}</button><button disabled={!selectedProductIds.length || reviewBusy} onClick={() => void batchReview("pending_review")}>批量送审</button><button className="primaryButton" disabled={!selectedProductIds.length || reviewBusy} onClick={() => void batchReview("approved")}>{reviewBusy ? "处理中…" : "批量批准"}</button></div></section>}
     <section className="card catalogFilter"><label className="masterSearch">⌕<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索品牌、型号、产品名称、来源文件…"/><kbd>{shown.length}</kbd></label><div>
       <label><span>适用系统</span><select value={systemCode} onChange={(event) => setSystemCode(event.target.value)}><option value="all">全部 FAB 系统</option>{facilityDomains.map((domain) => <optgroup label={`${domain.id} · ${domain.name}`} key={domain.id}>{facilitySystems.filter((item) => item.domainId === domain.id).map((system) => <option value={system.code} key={system.id}>{system.code} · {system.name}</option>)}</optgroup>)}</select></label>
       <label><span>产品分类</span><select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="all">全部分类</option>{categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>
       <label><span>审核状态</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">全部状态</option><option value="draft">待复核草稿</option><option value="pending_review">待审核</option><option value="approved">已批准</option><option value="conditional">有条件</option></select></label>
+      <label><span>资料完整度</span><select value={reviewFilter} onChange={(event) => setReviewFilter(event.target.value)}><option value="all">全部完整度</option><option value="ready">可送审</option><option value="incomplete">需补规格</option><option value="missing_source">缺少来源</option></select></label>
     </div></section>
     {loading ? <div className="catalogLoading"><i/><i/><i/></div> : shown.length ? <div className="productCatalogGrid">{shown.map((product) => {
-      const category = categoryMap.get(product.categoryId); const systems = parseArray(product.applicableSystemsJson); const validation = completeness(product);
+      const category = categoryMap.get(product.categoryId); const systems = parseArray(product.applicableSystemsJson); const reviewReadiness = readiness(product, product.status === "pending_review" ? "approved" : "pending_review");
       const productVariants = variants.filter((item) => item.productId === product.id); const productApplications = applications.filter((item) => item.productId === product.id); const detail = detailId === product.id; const productImages = referencedImages(product); const productCustomSpecifications = readCustomSpecifications(product.specificationsJson);
-      return <article id={"catalog-product-" + product.id} className={`card productCatalogCard ${detail ? "expanded" : ""}`} key={product.id}><header><div className="catalogProductIcon">{productImages[0] ? <img src={imageUrl(productImages[0].id)} alt={`${product.brand} ${product.model}`} loading="lazy" /> : category?.icon || "◇"}</div><div><small>{category?.name || "未分类"} · {product.productCode}</small><h3>{product.productName}</h3><p>{product.brand} · {product.model}</p></div><span className={`catalogStatus ${product.status}`}>{product.status === "approved" ? "已批准" : product.status === "conditional" ? "有条件" : product.status === "pending_review" ? "待审核" : "待复核"}</span></header>
+      return <article id={"catalog-product-" + product.id} className={`card productCatalogCard ${detail ? "expanded" : ""} ${selectedProductIds.includes(product.id) ? "selected" : ""}`} key={product.id}>{canReviewCatalog && <label className="catalogReviewCheck"><input type="checkbox" checked={selectedProductIds.includes(product.id)} disabled={!selectedProductIds.includes(product.id) && selectedProductIds.length >= 100} onChange={(event) => setSelectedProductIds((current) => event.target.checked ? [...new Set([...current, product.id])] : current.filter((id) => id !== product.id))}/><span>选择审核</span></label>}<header><div className="catalogProductIcon">{productImages[0] ? <img src={imageUrl(productImages[0].id)} alt={`${product.brand} ${product.model}`} loading="lazy" /> : category?.icon || "◇"}</div><div><small>{category?.name || "未分类"} · {product.productCode}</small><h3>{product.productName}</h3><p>{product.brand} · {product.model}</p></div><span className={`catalogStatus ${product.status}`}>{product.status === "approved" ? "已批准" : product.status === "conditional" ? "有条件" : product.status === "pending_review" ? "待审核" : "待复核"}</span></header>
         <div className="catalogSystemChips">{systems.slice(0, 5).map((code) => { const system = getFacilitySystem(code); return <span className={`chip ${system?.color || "gray"}`} key={code}>{code}</span>; })}{systems.length > 5 && <em>+{systems.length - 5}</em>}</div>
         <div className="catalogKeySpecs"><p><span>压力范围</span><b>{product.minPressureMpa ?? "—"} ～ {product.maxPressureMpa ?? "—"} MPa</b></p><p><span>温度范围</span><b>{product.minTemperatureC ?? "—"} ～ {product.maxTemperatureC ?? "—"} °C</b></p><p><span>接口 / 尺寸</span><b>{[product.connectionStandard, product.nominalSize].filter(Boolean).join(" · ") || "待录入"}</b></p><p><span>接液 / 内部材质</span><b>{listText(product.wettedMaterialsJson) || "待录入"}</b></p></div>
-        <div className={`catalogCompleteness ${validation.valid ? "complete" : "incomplete"}`}><i>{validation.valid ? "✓" : "!"}</i><span><b>{validation.valid ? "分类规格完整" : `缺少或错误 ${validation.issues.length} 项`}</b><small>{validation.valid ? "可进入技术审核" : validation.issues.slice(0, 2).map((item) => item.label).join("、")}</small></span></div>
+        <div className={`catalogCompleteness ${reviewReadiness.length === 0 ? "complete" : "incomplete"}`}><i>{reviewReadiness.length === 0 ? "✓" : "!"}</i><span><b>{reviewReadiness.length === 0 ? (product.status === "pending_review" ? "资料完整，可批准" : "资料完整，可进入审核") : `需补充 ${reviewReadiness.length} 项`}</b><small>{reviewReadiness.length === 0 ? "规格、系统与来源证据完整" : reviewReadiness.slice(0, 2).join("、")}</small></span></div>
         {detail && <div className="catalogDetail"><div><span>详细分类规格</span>{definitionsFor(product.categoryId).map((definition) => <p key={definition.id || definition.key}><small>{definition.label}</small><b>{displaySpec(parseObject(product.specificationsJson)[definition.key], definition.unit)}</b></p>)}{productCustomSpecifications.map((field) => <p className="custom" key={field.key}><small>{field.label}{field.note ? ` · ${field.note}` : ""}</small><b>{displaySpec(field.dataType === "boolean" ? field.value === "true" : field.value, field.unit)}</b></p>)}</div><div><span>来源与扩展记录</span><p><small>来源文件</small><b>{product.sourceDocument || "—"}</b></p><p><small>来源页码</small><b>{product.sourcePage || "—"}</b></p><p><small>型号变体</small><b>{productVariants.length} 个 SKU</b></p><p><small>系统适用性明细</small><b>{productApplications.length} 条</b></p>{product.sourceUrl && <a href={product.sourceUrl} target="_blank" rel="noreferrer">打开厂家正式资料 ↗</a>}</div></div>}
         <footer><div><button onClick={() => setDetailId(detail ? null : product.id)}>{detail ? "收起详情" : "查看全部参数"}</button><button onClick={() => editProduct(product)}>{canWriteGlobal ? "编辑产品" : "只读查看"}</button></div><div><button onClick={() => { openMasterData("productApplications", product.productCode); notify("已打开产品系统适用性台账"); }}>适用性</button><button className="primaryButton" onClick={() => { document.getElementById("project-catalog-selection")?.scrollIntoView({ behavior: "smooth", block: "start" }); notify("请先选择项目技术规格要求并运行匹配，合格后才能进入 BOM"); }}>按规格书选型</button></div></footer>
       </article>;
@@ -543,7 +578,7 @@ export function FacilityEquipmentPage({ notify }: { notify: Notify }) {
           <label className="wide"><span>认证（逗号分隔）</span><input value={draft.certificationsText} onChange={(event) => updateDraft("certificationsText", event.target.value)} placeholder="CE, UL, ATEX…"/></label><label className="wide"><span>符合标准（逗号分隔）</span><input value={draft.standardsText} onChange={(event) => updateDraft("standardsText", event.target.value)} placeholder="SEMI F20, IEC 60947-7-1…"/></label>
           <label className="wide"><span>来源文件 *</span><input value={draft.sourceDocument ?? ""} onChange={(event) => updateDraft("sourceDocument", event.target.value)} placeholder="材料型录/文件名.pdf"/></label><label className="wide"><span>厂家正式资料 URL *</span><input value={draft.sourceUrl ?? ""} onChange={(event) => updateDraft("sourceUrl", event.target.value)} placeholder="https://manufacturer.example/datasheet"/></label>
           <label><span>来源页码 / 条款</span><input value={draft.sourcePage ?? ""} onChange={(event) => updateDraft("sourcePage", event.target.value)}/></label><label><span>数据版本</span><input value={draft.revision} onChange={(event) => updateDraft("revision", event.target.value)}/></label>
-          <label><span>审核状态</span><select value={draft.status} onChange={(event) => updateDraft("status", event.target.value)}><option value="draft">待复核草稿</option><option value="pending_review">待审核</option><option value="approved">已批准</option><option value="conditional">有条件</option><option value="rejected">驳回</option></select></label>
+          <label><span>编辑状态</span><select value={["draft", "conditional", "rejected"].includes(draft.status) ? draft.status : "draft"} onChange={(event) => updateDraft("status", event.target.value)}><option value="draft">待复核草稿</option><option value="conditional">有条件</option><option value="rejected">退回补资料</option></select><small>送审与批准请使用型录审核工作台</small></label>
         </div></section>
       </div>
       <footer><small className="catalogDraftState">{draftSaveState}</small><div className={editorValid ? "valid" : "invalid"}><i>{editorValid ? "✓" : "!"}</i><span><b>{editorValid ? "产品规格校验通过" : `还有 ${editorValidation.issues.length + customValidationIssues.length} 个规格问题`}</b><small>{editorValid ? `内置字段和 ${customSpecifications.length} 个自定义字段将写入版本与审计日志` : [...editorValidation.issues.map((item) => item.label), ...customValidationIssues].slice(0, 3).join("、")}</small></span></div><button disabled={saving} onClick={() => setEditorOpen(false)}>取消</button><button className="primaryButton" disabled={saving || !editorValid} onClick={() => void save()}>{saving ? "保存中…" : draft.id ? "保存修改" : "创建产品"}</button></footer>

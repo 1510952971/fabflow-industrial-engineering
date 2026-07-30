@@ -360,7 +360,7 @@ export async function GET(request: Request) {
         : await db.select().from(config.table).orderBy(orderBy).limit(pageSize).offset((page - 1) * pageSize);
       meta[entity] = { page, pageSize, total: Number(totalRows[0]?.value ?? 0) };
     }
-    return Response.json({ data, meta, principal, permissions: { canWrite: principal.authenticated && canWrite(principal.roles), canWriteGlobal: principal.authenticated && hasGlobalScope(principal) } });
+    return Response.json({ data, meta, principal, permissions: { canWrite: principal.authenticated && canWrite(principal.roles), canWriteGlobal: principal.authenticated && hasGlobalScope(principal), canReviewCatalog: principal.authenticated && principal.roles.includes("platform_admin") } });
   } catch (error) { return errorResponse(error); }
 }
 
@@ -397,6 +397,7 @@ export async function POST(request: Request) {
       const db = getDb();
       const created: Record<string, unknown>[] = [];
       for (const values of normalized) {
+        if (entity === "catalogProducts" && ["pending_review", "approved"].includes(String(values.status ?? ""))) throw new ApiError(409, "请先保存为草稿，再通过型录审核工作台送审和批准", "CATALOG_REVIEW_REQUIRED");
         const row = { id: crypto.randomUUID(), ...values } as Record<string, unknown>;
         requireEntityWriteScope(principal, entity, row);
         if (entity === "purchaseOrders") await assertProjectReleasedForPurchase(row);
@@ -409,6 +410,7 @@ export async function POST(request: Request) {
       return Response.json({ items: created, imported: created.length }, { status: 201 });
     }
     const values = normalizeData(config, body.data);
+    if (entity === "catalogProducts" && ["pending_review", "approved"].includes(String(values.status ?? ""))) throw new ApiError(409, "请先保存为草稿，再通过型录审核工作台送审和批准", "CATALOG_REVIEW_REQUIRED");
     const row = { id: crypto.randomUUID(), ...values } as Record<string, unknown>;
     requireEntityWriteScope(principal, entity, row);
     if (entity === "purchaseOrders") await assertProjectReleasedForPurchase(row);
@@ -438,6 +440,7 @@ export async function PATCH(request: Request) {
     if (entity === "purchaseOrders") await assertProjectReleasedForPurchase(before);
     await writeVersion(entity, before, "before_update", principal.email);
     const values = normalizeData(config, body.data, true);
+    if (entity === "catalogProducts" && ["pending_review", "approved"].includes(String(values.status ?? "")) && values.status !== before.status) throw new ApiError(409, "请通过型录审核工作台完成送审和批准", "CATALOG_REVIEW_REQUIRED");
     if (entity === "catalogCandidates") {
       for (const field of ["projectId", "requirementId", "candidateCode", "categoryId", "requirementSnapshotJson", "promotedProductId", "status", "createdBy"]) delete values[field];
       if (before.status === "rfq_preparation" && ["manufacturer", "brand", "model", "supplier", "rfqNumber", "technicalQueryNumber", "vendorDataJson"].some((field) => values[field])) values.status = "vendor_data_received";
